@@ -14,6 +14,10 @@ import {
   installAllureCliPlugin,
 } from './allure-plugin';
 import {
+  detectToolsForRepo,
+  managePresetContainer,
+} from './detector';
+import {
   PipelineRunManager,
   getProjectArtifacts,
   isSafeRepoDirName,
@@ -159,6 +163,33 @@ export function createWebCliServer(workspaceDir: string = path.resolve(__dirname
       }
 
       // REST API routes for the native Allure tabs
+      if (method === 'POST' && pathname === '/api/detect-tools') {
+        const body = await readJsonBody(req);
+        const repoUrl = String(body.repoUrl || '').trim();
+        const targetUrl = body.targetUrl ? String(body.targetUrl).trim() : undefined;
+        if (!repoUrl) {
+          return sendJson(res, 400, { error: '--repo-url is required for tool detection' });
+        }
+        const detection = await detectToolsForRepo({
+          workspaceDir: rootPath,
+          repoUrl,
+          targetUrl,
+        });
+        return sendJson(res, 200, detection);
+      }
+
+      if (method === 'POST' && pathname === '/api/target-container') {
+        const body = await readJsonBody(req);
+        const action = body.action === 'start' || body.action === 'stop' ? body.action : 'status';
+        const preset = body.preset === 'flowise' ? 'flowise' : 'juice-shop';
+        try {
+          const result = managePresetContainer(action, preset);
+          return sendJson(res, 200, result);
+        } catch (err: any) {
+          return sendJson(res, 500, { error: err?.message || 'Container operation failed' });
+        }
+      }
+
       if (method === 'POST' && pathname === '/api/preview-cmd') {
         const body = await readJsonBody(req);
         try {

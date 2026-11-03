@@ -1,7 +1,7 @@
 /**
  * Native Allure Report 2 Plugin (asvs-pipeline-plugin)
  * Adds native sidebar tabs directly inside Allure Report:
- *  1. "Security Scan" (#security-scan) — 1:1 CLI runner for run_security_scans.sh
+ *  1. "Security Scan" (#security-scan) — 1:1 CLI runner with Smart Tool Detection (SDD 002)
  *  2. "ASVS v5 Matrix" (#asvs-matrix) — displays asvs-summary.csv & severity-rollup.json
  */
 
@@ -42,7 +42,7 @@ export function getAllurePluginCss(): string {
 }
 .asvs-grid-2 {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
+  grid-template-columns: 1.08fr 0.92fr;
   gap: 18px;
 }
 @media (max-width: 1100px) {
@@ -90,19 +90,55 @@ export function getAllurePluginCss(): string {
 }
 .asvs-tools-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 8px;
 }
 .asvs-tool-chip {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px;
   border: 1px solid #cfd8dc;
-  border-radius: 3px;
+  border-radius: 4px;
   background: #fafbfc;
   font-size: 12px;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.asvs-tool-chip.recommended {
+  border-color: #66bb6a;
+  background: #f1f8e9;
+}
+.asvs-tool-chip .chip-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: #263238;
+}
+.asvs-tool-chip .chip-reason {
+  font-size: 10.5px;
+  color: #546e7a;
+  line-height: 1.25;
+}
+.asvs-detect-banner {
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  color: #0d47a1;
+  border-radius: 4px;
+  padding: 8px 11px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.asvs-coverage-banner {
+  background: #f1f8e9;
+  border: 1px solid #a5d6a7;
+  color: #1b5e20;
+  border-radius: 4px;
+  padding: 8px 11px;
+  font-size: 11.5px;
+  margin-top: 8px;
+  margin-bottom: 10px;
 }
 .asvs-cmd-box {
   background: #263238;
@@ -231,6 +267,18 @@ export function getAllurePluginJs(): string {
 
   var activeRunId = null;
   var pollTimer = null;
+  var lastDetection = null;
+
+  var TOOL_CHAPTERS_MAP = {
+    'npm-audit': ['V15 (Dependencies)'],
+    'trivy-fs': ['V15 (Filesystem SCA)'],
+    'semgrep': ['V1 (Injection)', 'V2 (Validation)', 'V3 (Web)', 'V5 (Files)', 'V6 (Auth)', 'V8 (Access)', 'V11 (Crypto)', 'V13 (Config)'],
+    'gitleaks': ['V13.3 (Secrets & Keys)'],
+    'zap': ['V3.4 (Browser Security Headers)', 'V3.3 (Cookies)', 'V4 (API)', 'V13 (HTTP Config)'],
+    'odc': ['V15 (NVD CVEs)'],
+    'bandit': ['V1/V5/V11/V13 (Python SAST)'],
+    'sonar': ['V1/V6/V11/V15 (SonarQube)']
+  };
 
   var SecurityScanContentView = Backbone.Marionette.View.extend({
     className: 'asvs-plugin-page',
@@ -239,7 +287,7 @@ export function getAllurePluginJs(): string {
         '<div class="asvs-plugin-header">',
         '  <div>',
         '    <h2>Security Scan Launcher (1:1 CLI inside Allure Report)</h2>',
-        '    <div class="asvs-plugin-sub">Executes unmodified <code>security-tests/run_security_scans.sh</code> and updates this Allure Report</div>',
+        '    <div class="asvs-plugin-sub">Executes unmodified <code>security-tests/run_security_scans.sh</code> with Smart Tool Auto-Detection (SDD 002)</div>',
         '  </div>',
         '  <div class="asvs-btn-row">',
         '    <label style="font-size:12px;font-weight:600;color:#455a64">Active Allure Project:</label>',
@@ -253,8 +301,11 @@ export function getAllurePluginJs(): string {
         '      <h3>CLI Parameters (<code>run_security_scans.sh</code>)</h3>',
         '      <div class="asvs-form-row">',
         '        <label>Target Repository URL (<code>--repo-url</code>) *</label>',
-        '        <input type="text" id="ap-repo-url" class="asvs-input" value="https://github.com/adeelahmad6834/asvs-allure-security-pipeline.git">',
-        '        <div class="asvs-btn-row" style="margin-top:5px">',
+        '        <div style="display:flex;gap:6px">',
+        '          <input type="text" id="ap-repo-url" class="asvs-input" value="https://github.com/juice-shop/juice-shop.git">',
+        '          <button type="button" id="ap-btn-detect" class="asvs-btn asvs-btn-primary" style="white-space:nowrap">🔍 Auto-Detect Tools</button>',
+        '        </div>',
+        '        <div class="asvs-btn-row" style="margin-top:6px">',
         '          <button type="button" class="asvs-btn ap-preset" data-url="https://github.com/adeelahmad6834/asvs-allure-security-pipeline.git" style="padding:3px 7px;font-size:11px">Preset: Self Repo</button>',
         '          <button type="button" class="asvs-btn ap-preset" data-url="https://github.com/FlowiseAI/Flowise.git" style="padding:3px 7px;font-size:11px">Preset: Flowise</button>',
         '          <button type="button" class="asvs-btn ap-preset" data-url="https://github.com/juice-shop/juice-shop.git" style="padding:3px 7px;font-size:11px">Preset: Juice Shop</button>',
@@ -274,33 +325,44 @@ export function getAllurePluginJs(): string {
         '        </div>',
         '      </div>',
         '      <div class="asvs-form-row">',
-        '        <label>Tools (<code>--tools</code>) *</label>',
-        '        <div class="asvs-tools-grid">',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="npm-audit" checked> npm-audit</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="trivy-fs"> trivy-fs</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="semgrep"> semgrep</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="gitleaks"> gitleaks</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="zap" id="ap-cb-zap"> zap (Web DAST)</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="odc"> odc</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="bandit"> bandit</label>',
-        '          <label class="asvs-tool-chip"><input type="checkbox" class="ap-tool-cb" value="sonar"> sonar</label>',
+        '        <label>Optional Running Web Application URL for DAST (<code>--target-url</code>)</label>',
+        '        <div style="display:flex;gap:6px">',
+        '          <input type="text" id="ap-target-url" class="asvs-input" placeholder="e.g. http://172.17.0.1:3000 or https://staging.example.com">',
+        '          <button type="button" id="ap-btn-check-url" class="asvs-btn" style="white-space:nowrap">✓ Check URL &amp; Enable ZAP</button>',
+        '        </div>',
+        '        <div class="asvs-btn-row" style="margin-top:5px">',
+        '          <span style="font-size:11px;color:#607d8b">Study Case Helper:</span>',
+        '          <button type="button" id="ap-btn-start-js" class="asvs-btn" style="padding:2px 7px;font-size:11px">🐳 Start Local Juice Shop (:3000)</button>',
+        '          <button type="button" id="ap-btn-stop-js" class="asvs-btn" style="padding:2px 7px;font-size:11px">⏹ Stop Container</button>',
+        '          <span id="ap-url-status" style="font-size:11px;color:#1565c0"></span>',
         '        </div>',
         '      </div>',
+        '      <div id="ap-detect-banner" class="asvs-detect-banner">Analyzing repository to auto-select compatible tools...</div>',
+        '      <div class="asvs-form-row">',
+        '        <label>Tools (<code>--tools</code>) * <span style="font-weight:normal;color:#607d8b">(auto-selected based on repository &amp; environment; click to override)</span></label>',
+        '        <div class="asvs-tools-grid">',
+        '          <label class="asvs-tool-chip" id="chip-npm-audit"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="npm-audit" checked> npm-audit</div><div class="chip-reason" id="reason-npm-audit">Node.js SCA</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-trivy-fs"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="trivy-fs"> trivy-fs</div><div class="chip-reason" id="reason-trivy-fs">Filesystem &amp; lockfile SCA</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-semgrep"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="semgrep"> semgrep</div><div class="chip-reason" id="reason-semgrep">Multi-language SAST</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-gitleaks"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="gitleaks"> gitleaks</div><div class="chip-reason" id="reason-gitleaks">Hardcoded secrets scan</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-zap"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="zap" id="ap-cb-zap"> zap (Web DAST)</div><div class="chip-reason" id="reason-zap">Web App DAST (V3.4 Headers)</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-odc"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="odc"> odc</div><div class="chip-reason" id="reason-odc">OWASP Dependency-Check</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-bandit"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="bandit"> bandit</div><div class="chip-reason" id="reason-bandit">Python SAST</div></label>',
+        '          <label class="asvs-tool-chip" id="chip-sonar"><div class="chip-top"><input type="checkbox" class="ap-tool-cb" value="sonar"> sonar</div><div class="chip-reason" id="reason-sonar">SonarQube Server</div></label>',
+        '        </div>',
+        '        <div id="ap-coverage-banner" class="asvs-coverage-banner">OWASP ASVS v5 Chapters to be evaluated: V15</div>',
+        '      </div>',
         '      <div id="ap-zap-box" class="asvs-card asvs-hidden" style="background:#f8fafc;margin-top:8px">',
-        '        <h3>Web Application DAST — OWASP ZAP (<code>--zap-*</code>)</h3>',
+        '        <h3>Web Application DAST — OWASP ZAP Options (<code>--zap-*</code>)</h3>',
         '        <div class="asvs-form-grid">',
         '          <div class="asvs-form-row">',
         '            <label>ZAP Mode (<code>--zap-mode</code>)</label>',
         '            <select id="ap-zap-mode" class="asvs-select">',
-        '              <option value="baseline">baseline (Passive)</option>',
-        '              <option value="full">full (Active)</option>',
+        '              <option value="baseline">baseline (Passive / Fast)</option>',
+        '              <option value="full">full (Active Scan)</option>',
         '              <option value="openapi">openapi (API Spec)</option>',
         '              <option value="auth">auth (Authenticated)</option>',
         '            </select>',
-        '          </div>',
-        '          <div class="asvs-form-row" id="ap-row-target-url">',
-        '            <label>Web App Target URL (<code>--target-url</code>) *</label>',
-        '            <input type="text" id="ap-target-url" class="asvs-input" placeholder="http://172.17.0.1:3000 or https://...">',
         '          </div>',
         '          <div class="asvs-form-row asvs-hidden" id="ap-row-openapi">',
         '            <label>OpenAPI Spec (<code>--openapi</code>) *</label>',
@@ -356,10 +418,29 @@ export function getAllurePluginJs(): string {
       var self = this;
       this.$('.ap-preset').on('click', function (e) {
         self.$('#ap-repo-url').val(e.currentTarget.getAttribute('data-url'));
-        self.updatePreview();
+        self.autoDetectTools();
+      });
+      this.$('#ap-btn-detect').on('click', function () {
+        self.autoDetectTools();
+      });
+      this.$('#ap-repo-url').on('change', function () {
+        self.autoDetectTools();
+      });
+      this.$('#ap-btn-check-url').on('click', function () {
+        self.autoDetectTools();
+      });
+      this.$('#ap-target-url').on('change', function () {
+        self.autoDetectTools();
+      });
+      this.$('#ap-btn-start-js').on('click', function () {
+        self.manageContainer('start', 'juice-shop');
+      });
+      this.$('#ap-btn-stop-js').on('click', function () {
+        self.manageContainer('stop', 'juice-shop');
       });
       this.$('input, select').on('input change', function () {
         self.syncZapVisibility();
+        self.updateCoverageBanner();
         self.updatePreview();
       });
       this.$('#ap-btn-copy').on('click', function () {
@@ -378,7 +459,7 @@ export function getAllurePluginJs(): string {
       });
 
       this.syncZapVisibility();
-      this.updatePreview();
+      this.autoDetectTools();
       this.loadProjectsList();
       this.loadRunsList();
       if (activeRunId) {
@@ -393,12 +474,107 @@ export function getAllurePluginJs(): string {
       }
     },
 
+    autoDetectTools: function () {
+      var self = this;
+      var repoUrl = (this.$('#ap-repo-url').val() || '').trim();
+      var targetUrl = (this.$('#ap-target-url').val() || '').trim();
+      if (!repoUrl) return;
+
+      this.$('#ap-detect-banner').text('🔍 Inspecting repository & environment to auto-select compatible scanners...');
+
+      fetch('/api/detect-tools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl: repoUrl, targetUrl: targetUrl })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (det) {
+          if (!det || !det.toolsDetail) return;
+          lastDetection = det;
+
+          if (det.targetUrlCheck && det.targetUrlCheck.suggestedScannerUrl && targetUrl) {
+            self.$('#ap-target-url').val(det.targetUrlCheck.suggestedScannerUrl);
+            self.$('#ap-url-status').text(det.targetUrlCheck.message);
+          } else if (det.targetUrlCheck) {
+            self.$('#ap-url-status').text('');
+          }
+
+          Object.keys(det.toolsDetail).forEach(function (tool) {
+            var info = det.toolsDetail[tool];
+            var cb = self.$('.ap-tool-cb[value="' + tool + '"]');
+            var chip = self.$('#chip-' + tool);
+            var reasonEl = self.$('#reason-' + tool);
+
+            cb.prop('checked', Boolean(info.recommended));
+            chip.toggleClass('recommended', Boolean(info.recommended));
+            if (reasonEl.length) {
+              reasonEl.text((info.recommended ? '✔ ' : '⚪ ') + info.reason);
+            }
+          });
+
+          var langs = (det.detectedLanguages || []).join(', ');
+          var recList = (det.recommendedTools || []).join(', ');
+          self.$('#ap-detect-banner').html(
+            '<strong>Smart Detection for <code>' + det.repoName + '</code></strong> (' + langs + '): ' +
+            'Auto-selected <strong>' + (det.recommendedTools || []).length + ' tools</strong> (<code>' + recList + '</code>).'
+          );
+
+          self.syncZapVisibility();
+          self.updateCoverageBanner();
+          self.updatePreview();
+        })
+        .catch(function () {});
+    },
+
+    manageContainer: function (action, preset) {
+      var self = this;
+      this.$('#ap-url-status').text(action === 'start' ? 'Starting Docker container...' : 'Stopping container...');
+      fetch('/api/target-container', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, preset: preset })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          self.$('#ap-url-status').text(res.message || res.error || '');
+          if (action === 'start' && res.targetUrl) {
+            self.$('#ap-target-url').val(res.targetUrl);
+            self.$('#ap-cb-zap').prop('checked', true);
+            self.syncZapVisibility();
+            self.updateCoverageBanner();
+            self.updatePreview();
+          } else if (action === 'stop') {
+            self.$('#ap-target-url').val('');
+            self.$('#ap-cb-zap').prop('checked', false);
+            self.syncZapVisibility();
+            self.updateCoverageBanner();
+            self.updatePreview();
+          }
+        })
+        .catch(function () {});
+    },
+
+    updateCoverageBanner: function () {
+      var chapters = [];
+      this.$('.ap-tool-cb:checked').each(function () {
+        var list = TOOL_CHAPTERS_MAP[this.value] || [];
+        list.forEach(function (ch) {
+          if (chapters.indexOf(ch) === -1) chapters.push(ch);
+        });
+      });
+      var box = this.$('#ap-coverage-banner');
+      if (chapters.length > 0) {
+        box.html('<strong>OWASP ASVS v5 Chapters Covered by Selected Tools (' + chapters.length + ' areas):</strong> ' + chapters.join(' • '));
+      } else {
+        box.html('⚠️ Select at least one scanner tool to evaluate OWASP ASVS v5 controls.');
+      }
+    },
+
     syncZapVisibility: function () {
       var zapChecked = this.$('#ap-cb-zap').is(':checked');
       this.$('#ap-zap-box').toggleClass('asvs-hidden', !zapChecked);
       var mode = this.$('#ap-zap-mode').val();
       this.$('#ap-row-openapi').toggleClass('asvs-hidden', mode !== 'openapi');
-      this.$('#ap-row-target-url').toggleClass('asvs-hidden', mode === 'openapi');
       this.$('#ap-zap-auth-box').toggleClass('asvs-hidden', mode !== 'auth');
     },
 
@@ -674,7 +850,6 @@ export function getAllurePluginJs(): string {
 }
 
 export function installAllureCliPlugin(workspaceDir: string): void {
-  // 1. Install into local Allure CLI distribution if present
   const allureDistDir = path.join(workspaceDir, 'security-reports', '_bin', 'allure-2.29.0');
   if (fs.existsSync(allureDistDir)) {
     const pluginDir = path.join(allureDistDir, 'plugins', 'asvs-pipeline-plugin');
@@ -710,7 +885,6 @@ export function installAllureCliPlugin(workspaceDir: string): void {
     }
   }
 
-  // 2. Also inject into any existing ./allure-report/<repo> directories
   const reportsRoot = path.join(workspaceDir, 'allure-report');
   if (fs.existsSync(reportsRoot)) {
     for (const entry of fs.readdirSync(reportsRoot)) {
@@ -740,4 +914,3 @@ export function installAllureCliPlugin(workspaceDir: string): void {
     }
   }
 }
-

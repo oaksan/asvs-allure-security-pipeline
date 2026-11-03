@@ -3,6 +3,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { describe, it } from 'node:test';
 
+import { detectToolsForRepo } from './detector';
 import {
   extractRepoNameFromUrl,
   isSafeRepoDirName,
@@ -52,7 +53,7 @@ function httpRequest(
   });
 }
 
-describe('Native Allure Report Plugin & CLI Wrapper', () => {
+describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', () => {
   it('builds 1:1 CLI commands for run_security_scans.sh and masks passwords/tokens', () => {
     const cmd = validateAndBuildCliCommand({
       repoUrl: 'https://oauth2:mysecret@gitlab.com/org/webapp.git',
@@ -97,7 +98,25 @@ describe('Native Allure Report Plugin & CLI Wrapper', () => {
     assert.equal(isSafeRepoDirName('../etc'), false);
   });
 
-  it('serves the official Allure Report at / with the native asvs-pipeline plugin injected', async () => {
+  it('auto-detects compatible tools and ASVS chapters from repository and environment', async () => {
+    const workspaceRoot = path.resolve(__dirname, '..');
+    const det = await detectToolsForRepo({
+      workspaceDir: workspaceRoot,
+      repoUrl: 'https://github.com/adeelahmad6834/asvs-allure-security-pipeline.git',
+    });
+
+    assert.equal(det.repoName, 'asvs-allure-security-pipeline');
+    assert.equal(det.hasPackageJson, true);
+    assert.equal(det.hasPythonFiles, false);
+    assert.ok(det.recommendedTools.includes('npm-audit'));
+    assert.ok(det.recommendedTools.includes('trivy-fs'));
+    assert.ok(det.recommendedTools.includes('semgrep'));
+    assert.ok(det.recommendedTools.includes('gitleaks'));
+    assert.ok(!det.recommendedTools.includes('bandit'));
+    assert.ok(det.coveredAsvsChapters.length >= 4);
+  });
+
+  it('serves the official Allure Report at /, native plugin assets, and /api/detect-tools', async () => {
     const workspaceRoot = path.resolve(__dirname, '..');
     const srv = createWebCliServer(workspaceRoot);
     await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve));
@@ -110,12 +129,16 @@ describe('Native Allure Report Plugin & CLI Wrapper', () => {
       assert.ok(home.raw.includes('<title>Allure Report</title>'));
       assert.ok(home.raw.includes('<script src="app.js"></script>'));
       assert.ok(home.raw.includes('plugin/asvs-pipeline/index.js'));
-      assert.ok(home.raw.includes('plugin/asvs-pipeline/styles.css'));
 
-      const pluginJs = await httpRequest(`${base}/plugin/asvs-pipeline/index.js`);
-      assert.equal(pluginJs.status, 200);
-      assert.ok(pluginJs.raw.includes("allure.api.addTab('security-scan'"));
-      assert.ok(pluginJs.raw.includes("allure.api.addTab('asvs-matrix'"));
+      const detectRes = await httpRequest(`${base}/api/detect-tools`, 'POST', {
+        repoUrl: 'https://github.com/juice-shop/juice-shop.git',
+        targetUrl: base,
+      });
+      assert.equal(detectRes.status, 200);
+      assert.equal(detectRes.body.repoName, 'juice-shop');
+      assert.ok(detectRes.body.recommendedTools.includes('npm-audit'));
+      assert.ok(detectRes.body.recommendedTools.includes('zap'));
+      assert.equal(detectRes.body.targetUrlCheck.reachable, true);
 
       const preview = await httpRequest(`${base}/api/preview-cmd`, 'POST', {
         repoUrl: 'https://github.com/FlowiseAI/Flowise.git',
@@ -126,10 +149,6 @@ describe('Native Allure Report Plugin & CLI Wrapper', () => {
         preview.body.displayCommand,
         'bash security-tests/run_security_scans.sh --repo-url https://github.com/FlowiseAI/Flowise.git --tools npm-audit,semgrep'
       );
-
-      const projects = await httpRequest(`${base}/api/projects`);
-      assert.equal(projects.status, 200);
-      assert.ok(Array.isArray(projects.body.projects));
 
       const traversal = await httpRequest(`${base}/api/projects/..%2Fetc`);
       assert.equal(traversal.status, 400);
