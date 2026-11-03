@@ -30,3 +30,4 @@ web-ui/
 ├── server.ts             # ATUALIZADO: Rotas POST /api/detect-tools e POST /api/target-container
 └── runner.test.ts        # ATUALIZADO: Testes unitários e de integração para detecção automática de ferramentas
 ```
+

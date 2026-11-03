@@ -364,6 +364,10 @@ export function getAllurePluginJs(): string {
         '              <option value="auth">auth (Authenticated)</option>',
         '            </select>',
         '          </div>',
+        '          <div class="asvs-form-row">',
+        '            <label>Max ZAP Spider Duration (minutes)</label>',
+        '            <input type="number" id="ap-zap-time" class="asvs-input" value="2" min="1" max="60">',
+        '          </div>',
         '          <div class="asvs-form-row asvs-hidden" id="ap-row-openapi">',
         '            <label>OpenAPI Spec (<code>--openapi</code>) *</label>',
         '            <input type="text" id="ap-openapi" class="asvs-input" placeholder="https://example.com/openapi.json">',
@@ -382,6 +386,11 @@ export function getAllurePluginJs(): string {
         '            </div>',
         '          </div>',
         '        </div>',
+        '      </div>',
+        '      <div class="asvs-form-row">',
+        '        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">',
+        '          <input type="checkbox" id="ap-skip-npm"> Skip slow <code>npm install</code> / Angular postinstall build when lockfile exists (<code>SKIP_NPM_INSTALL=true</code>)',
+        '        </label>',
         '      </div>',
         '      <div class="asvs-form-row">',
         '        <label>Equivalent CLI Command Preview</label>',
@@ -518,6 +527,9 @@ export function getAllurePluginJs(): string {
             '<strong>Smart Detection for <code>' + det.repoName + '</code></strong> (' + langs + '): ' +
             'Auto-selected <strong>' + (det.recommendedTools || []).length + ' tools</strong> (<code>' + recList + '</code>).'
           );
+          if (typeof det.recommendSkipNpmInstall === 'boolean') {
+            self.$('#ap-skip-npm').prop('checked', det.recommendSkipNpmInstall);
+          }
 
           self.syncZapVisibility();
           self.updateCoverageBanner();
@@ -583,6 +595,8 @@ export function getAllurePluginJs(): string {
       this.$('.ap-tool-cb:checked').each(function () {
         tools.push(this.value);
       });
+      var zapChecked = tools.indexOf('zap') !== -1;
+      var zapTime = Number(this.$('#ap-zap-time').val() || 0);
       return {
         repoUrl: (this.$('#ap-repo-url').val() || '').trim(),
         branch: (this.$('#ap-branch').val() || '').trim(),
@@ -595,7 +609,10 @@ export function getAllurePluginJs(): string {
         zapAuthUser: (this.$('#ap-zap-user').val() || '').trim(),
         zapAuthPass: this.$('#ap-zap-pass').val() || '',
         zapUserField: (this.$('#ap-zap-ufield').val() || '').trim(),
-        zapPassField: (this.$('#ap-zap-pfield').val() || '').trim()
+        zapPassField: (this.$('#ap-zap-pfield').val() || '').trim(),
+        skipNpmInstall: this.$('#ap-skip-npm').is(':checked'),
+        zapBaselineTime: zapChecked && zapTime > 0 ? zapTime : undefined,
+        zapFullTime: zapChecked && zapTime > 0 ? zapTime : undefined
       };
     },
 

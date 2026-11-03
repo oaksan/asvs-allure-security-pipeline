@@ -7,6 +7,7 @@ import { detectToolsForRepo } from './detector';
 import {
   extractRepoNameFromUrl,
   isSafeRepoDirName,
+  isTrivyDbCached,
   validateAndBuildCliCommand,
 } from './runner';
 import { createWebCliServer } from './server';
@@ -108,6 +109,9 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
     assert.equal(det.repoName, 'asvs-allure-security-pipeline');
     assert.equal(det.hasPackageJson, true);
     assert.equal(det.hasPythonFiles, false);
+    assert.equal(det.trivyDbCached, true);
+    assert.equal(isTrivyDbCached(), true);
+    assert.equal(det.recommendSkipNpmInstall, true);
     assert.ok(det.recommendedTools.includes('npm-audit'));
     assert.ok(det.recommendedTools.includes('trivy-fs'));
     assert.ok(det.recommendedTools.includes('semgrep'));

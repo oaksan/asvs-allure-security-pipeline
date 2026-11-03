@@ -10,8 +10,20 @@
 import { ChildProcess, spawn, spawnSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { installAllureCliPlugin } from './allure-plugin';
+
+export function getTrivyCacheDir(): string {
+  return process.env.TRIVY_CACHE_DIR || path.join(os.homedir(), '.cache', 'trivy');
+}
+
+export function isTrivyDbCached(cacheDir: string = getTrivyCacheDir()): boolean {
+  return (
+    fs.existsSync(path.join(cacheDir, 'trivy', 'db', 'trivy.db')) ||
+    fs.existsSync(path.join(cacheDir, 'db', 'trivy.db'))
+  );
+}
 
 export const ALLOWED_TOOLS = [
   'odc',
@@ -304,17 +316,6 @@ export class PipelineRunManager {
       ? `${localAllureBin}:${currentPath}`
       : currentPath;
 
-    const child = spawn('bash', [built.script, ...built.args], {
-      cwd: this.workspaceDir,
-      shell: false,
-      env: {
-        ...process.env,
-        ...built.envOverrides,
-        PATH: augmentedPath,
-      },
-    });
-    this.procs.set(id, child);
-
     const appendLines = (chunk: Buffer) => {
       const text = chunk.toString('utf8');
       const lines = text.split(/\r?\n/);
@@ -323,50 +324,96 @@ export class PipelineRunManager {
       }
     };
 
-    child.stdout?.on('data', appendLines);
-    child.stderr?.on('data', appendLines);
+    const launchMainScript = () => {
+      if (record.status === 'canceled') return;
+      const child = spawn('bash', [built.script, ...built.args], {
+        cwd: this.workspaceDir,
+        shell: false,
+        env: {
+          ...process.env,
+          ...built.envOverrides,
+          PATH: augmentedPath,
+        },
+      });
+      this.procs.set(id, child);
 
-    child.on('close', (code) => {
-      this.procs.delete(id);
-      // Fallback: if allure-results/<repo> was created and allure binary exists, ensure allure-report/<repo> is built
-      const allureBinExe = path.join(localAllureBin, 'allure');
-      const resultsDir = path.join(this.workspaceDir, 'allure-results', built.repoName);
-      const reportDir = path.join(this.workspaceDir, 'allure-report', built.repoName);
-      if (
-        fs.existsSync(allureBinExe) &&
-        fs.existsSync(resultsDir) &&
-        !fs.existsSync(path.join(reportDir, 'index.html'))
-      ) {
-        try {
-          fs.chmodSync(allureBinExe, 0o755);
-          spawnSync(allureBinExe, ['generate', resultsDir, '--clean', '-o', reportDir], {
-            cwd: this.workspaceDir,
-          });
-          record.logs.push(`📊 Allure report generated → ./allure-report/${built.repoName}`);
-        } catch {
-          // ignore fallback error
+      child.stdout?.on('data', appendLines);
+      child.stderr?.on('data', appendLines);
+
+      child.on('close', (code) => {
+        this.procs.delete(id);
+        const allureBinExe = path.join(localAllureBin, 'allure');
+        const resultsDir = path.join(this.workspaceDir, 'allure-results', built.repoName);
+        const reportDir = path.join(this.workspaceDir, 'allure-report', built.repoName);
+        if (
+          fs.existsSync(allureBinExe) &&
+          fs.existsSync(resultsDir) &&
+          !fs.existsSync(path.join(reportDir, 'index.html'))
+        ) {
+          try {
+            fs.chmodSync(allureBinExe, 0o755);
+            spawnSync(allureBinExe, ['generate', resultsDir, '--clean', '-o', reportDir], {
+              cwd: this.workspaceDir,
+            });
+            record.logs.push(`📊 Allure report generated → ./allure-report/${built.repoName}`);
+          } catch {
+            // ignore fallback error
+          }
         }
-      }
-      try {
-        installAllureCliPlugin(this.workspaceDir);
-      } catch {
-        // ignore plugin install error
-      }
+        try {
+          installAllureCliPlugin(this.workspaceDir);
+        } catch {
+          // ignore plugin install error
+        }
 
-      record.endTime = new Date().toISOString();
-      record.exitCode = code ?? 1;
-      if (record.status === 'running') {
-        record.status = code === 0 ? 'completed' : 'failed';
-      }
-    });
+        record.endTime = new Date().toISOString();
+        record.exitCode = code ?? 1;
+        if (record.status === 'running') {
+          record.status = code === 0 ? 'completed' : 'failed';
+        }
+      });
 
-    child.on('error', (err) => {
-      this.procs.delete(id);
-      record.logs.push(`Process error: ${err.message}`);
-      record.endTime = new Date().toISOString();
-      record.exitCode = 1;
-      record.status = 'failed';
-    });
+      child.on('error', (err) => {
+        this.procs.delete(id);
+        record.logs.push(`Process error: ${err.message}`);
+        record.endTime = new Date().toISOString();
+        record.exitCode = 1;
+        record.status = 'failed';
+      });
+    };
+
+    const trivyCacheDir = getTrivyCacheDir();
+    if (opts.tools.includes('trivy-fs') && !isTrivyDbCached(trivyCacheDir)) {
+      fs.mkdirSync(trivyCacheDir, { recursive: true });
+      record.logs.push(
+        `⬇️ Pre-warming Trivy vulnerability DB in ${trivyCacheDir} (required by --skip-db-update)...`
+      );
+      const warmup = spawn(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '-v',
+          `${trivyCacheDir}:/root/.cache/`,
+          process.env.TRIVY_IMAGE || 'aquasec/trivy:latest',
+          'image',
+          '--download-db-only',
+        ],
+        { cwd: this.workspaceDir, shell: false }
+      );
+      this.procs.set(id, warmup);
+      warmup.stdout?.on('data', appendLines);
+      warmup.stderr?.on('data', appendLines);
+      warmup.on('close', () => {
+        record.logs.push('✅ Trivy vulnerability DB ready. Starting pipeline...');
+        launchMainScript();
+      });
+      warmup.on('error', () => {
+        launchMainScript();
+      });
+    } else {
+      launchMainScript();
+    }
 
     return record;
   }

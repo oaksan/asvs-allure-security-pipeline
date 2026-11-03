@@ -15,3 +15,4 @@
 - [x] Covers all 8 pipeline tools (`npm-audit`, `trivy-fs`, `semgrep`, `gitleaks`, `zap`, `odc`, `bandit`, `sonar`)
 - [x] Includes `--target-url` HTTP reachability check and Docker bridge IP normalization (`172.17.0.1`)
 - [x] Measurable success criteria and automated tests defined
+

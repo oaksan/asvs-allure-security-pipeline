@@ -11,7 +11,12 @@ import * as http from 'http';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { ALLOWED_TOOLS, ScannerTool, extractRepoNameFromUrl } from './runner';
+import {
+  ALLOWED_TOOLS,
+  ScannerTool,
+  extractRepoNameFromUrl,
+  isTrivyDbCached,
+} from './runner';
 
 export interface ToolRecommendation {
   tool: ScannerTool;
@@ -36,6 +41,8 @@ export interface DetectionReport {
   hasPackageJson: boolean;
   hasPythonFiles: boolean;
   dockerAvailable: boolean;
+  trivyDbCached: boolean;
+  recommendSkipNpmInstall: boolean;
   recommendedTools: ScannerTool[];
   coveredAsvsChapters: string[];
   toolsDetail: Record<ScannerTool, ToolRecommendation>;
@@ -340,6 +347,11 @@ export async function detectToolsForRepo(params: {
   const repoName = extractRepoNameFromUrl(repoUrl);
   const dockerAvailable = checkDockerAvailable();
   const odcCacheReady = checkOdcCachePresent(workspaceDir);
+  const trivyDbCached = isTrivyDbCached();
+  const localRepoDir = path.join(workspaceDir, repoName);
+  const recommendSkipNpmInstall =
+    fs.existsSync(path.join(localRepoDir, 'node_modules')) ||
+    fs.existsSync(path.join(localRepoDir, 'package-lock.json'));
 
   const sonarUrl = process.env.SONAR_HOST_URL || 'http://127.0.0.1:9000';
   const [repoInfo, sonarProbe, targetCheck] = await Promise.all([
@@ -362,9 +374,11 @@ export async function detectToolsForRepo(params: {
       tool: 'trivy-fs',
       available: dockerAvailable,
       recommended: dockerAvailable,
-      reason: dockerAvailable
-        ? 'Docker available — scans filesystem & lockfiles for CVEs'
-        : 'Docker not available on host',
+      reason: !dockerAvailable
+        ? 'Docker not available on host'
+        : trivyDbCached
+        ? 'Docker + Trivy Vulnerability DB cached & ready'
+        : 'Docker ready (will auto-download Trivy DB on first run)',
       asvsChapters: TOOL_ASVS_CHAPTERS['trivy-fs'],
     },
     semgrep: {
@@ -442,6 +456,8 @@ export async function detectToolsForRepo(params: {
     hasPackageJson: repoInfo.hasPackageJson,
     hasPythonFiles: repoInfo.hasPythonFiles,
     dockerAvailable,
+    trivyDbCached,
+    recommendSkipNpmInstall,
     recommendedTools,
     coveredAsvsChapters: Array.from(chaptersSet),
     toolsDetail: details,
@@ -543,3 +559,4 @@ export function managePresetContainer(
     message: `Started ${cfg.name} (${cfg.image}) at ${targetUrl}`,
   };
 }
+

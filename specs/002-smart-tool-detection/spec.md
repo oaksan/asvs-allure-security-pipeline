@@ -65,3 +65,4 @@ Como avaliador testando os estudos de caso clássicos (`Juice Shop` ou `Flowise`
 - **SC-001**: `git status --porcelain -uno` permanece vazio (zero arquivos originais modificados).
 - **SC-002**: `npx tsc -p web-ui/tsconfig.json --noEmit` e `node --test -r ts-node/register web-ui/runner.test.ts` passam com 100% de aprovação incluindo testes para `detectToolsForRepo` e `POST /api/detect-tools`.
 - **SC-003**: Na aba `Security Scan (CLI)` do Allure Report, ao selecionar/digitar um repositório, as ferramentas compatíveis são marcadas automaticamente e exibem seus diagnósticos e capítulos ASVS cobertos.
+
