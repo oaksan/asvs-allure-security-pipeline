@@ -387,10 +387,16 @@ export function getAllurePluginJs(): string {
         '          </div>',
         '        </div>',
         '      </div>',
-        '      <div class="asvs-form-row">',
-        '        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">',
-        '          <input type="checkbox" id="ap-skip-npm"> Skip slow <code>npm install</code> / Angular postinstall build when lockfile exists (<code>SKIP_NPM_INSTALL=true</code>)',
-        '        </label>',
+        '      <div class="asvs-form-grid" style="align-items:center">',
+        '        <div class="asvs-form-row">',
+        '          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-top:8px">',
+        '            <input type="checkbox" id="ap-skip-npm"> Skip slow <code>npm install</code> / Angular postinstall build when lockfile exists (<code>SKIP_NPM_INSTALL=true</code>)',
+        '          </label>',
+        '        </div>',
+        '        <div class="asvs-form-row">',
+        '          <label>Semgrep Per-Rule Timeout in seconds (<code>SEMGREP_TIMEOUT</code>, official default 5s)</label>',
+        '          <input type="number" id="ap-semgrep-timeout" class="asvs-input" value="10" min="5" max="300" style="max-width:140px">',
+        '        </div>',
         '      </div>',
         '      <div class="asvs-form-row">',
         '        <label>Equivalent CLI Command Preview</label>',
@@ -596,7 +602,9 @@ export function getAllurePluginJs(): string {
         tools.push(this.value);
       });
       var zapChecked = tools.indexOf('zap') !== -1;
+      var semgrepChecked = tools.indexOf('semgrep') !== -1;
       var zapTime = Number(this.$('#ap-zap-time').val() || 0);
+      var semgrepTimeout = Number(this.$('#ap-semgrep-timeout').val() || 10);
       return {
         repoUrl: (this.$('#ap-repo-url').val() || '').trim(),
         branch: (this.$('#ap-branch').val() || '').trim(),
@@ -611,6 +619,7 @@ export function getAllurePluginJs(): string {
         zapUserField: (this.$('#ap-zap-ufield').val() || '').trim(),
         zapPassField: (this.$('#ap-zap-pfield').val() || '').trim(),
         skipNpmInstall: this.$('#ap-skip-npm').is(':checked'),
+        semgrepTimeout: semgrepChecked && semgrepTimeout > 0 ? semgrepTimeout : undefined,
         zapBaselineTime: zapChecked && zapTime > 0 ? zapTime : undefined,
         zapFullTime: zapChecked && zapTime > 0 ? zapTime : undefined
       };

@@ -50,3 +50,4 @@ Como avaliador de segurança, quero ter na aba `Security Scan (CLI)` do Allure u
 - **SC-001**: `~/.cache/trivy/db/trivy.db` presente e validado; `trivy-fs` executa sem o erro `--skip-db-update cannot be specified on the first run`.
 - **SC-002**: `npx tsc -p web-ui/tsconfig.json --noEmit` e `node --test -r ts-node/register web-ui/runner.test.ts` passam com 100% de sucesso.
 - **SC-003**: `git status --porcelain -uno` vazio.
+

@@ -60,6 +60,7 @@ export interface ScanRunOptions {
   iterations?: number;
   zapBaselineTime?: number;
   zapFullTime?: number;
+  semgrepTimeout?: number;
   gitleaksHistory?: boolean;
   skipNpmInstall?: boolean;
   generateAllure?: boolean;
@@ -237,6 +238,11 @@ export function validateAndBuildCliCommand(opts: ScanRunOptions): BuiltCliComman
   }
   if (opts.zapFullTime && opts.zapFullTime > 0) {
     envOverrides.ZAP_FULL_TIME = String(opts.zapFullTime);
+  }
+  if (tools.includes('semgrep')) {
+    const semgrepTimeout =
+      opts.semgrepTimeout && opts.semgrepTimeout > 0 ? Math.floor(opts.semgrepTimeout) : 10;
+    envOverrides.SEMGREP_TIMEOUT = String(semgrepTimeout);
   }
   if (typeof opts.gitleaksHistory === 'boolean') {
     envOverrides.GITLEAKS_HISTORY = opts.gitleaksHistory ? 'true' : 'false';

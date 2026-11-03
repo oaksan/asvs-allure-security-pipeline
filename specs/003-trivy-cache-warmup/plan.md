@@ -15,3 +15,4 @@ web-ui/
 ├── allure-plugin.ts      # ATUALIZADO: Adiciona controles rápidos para SKIP_NPM_INSTALL=true e duração máxima do ZAP (minutos)
 └── runner.test.ts        # ATUALIZADO: Testes unitários para verificação de cache do Trivy e geração de variáveis de ambiente
 ```
+

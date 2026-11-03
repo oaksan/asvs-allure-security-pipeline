@@ -151,7 +151,7 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
       assert.equal(preview.status, 200);
       assert.equal(
         preview.body.displayCommand,
-        'bash security-tests/run_security_scans.sh --repo-url https://github.com/FlowiseAI/Flowise.git --tools npm-audit,semgrep'
+        'SEMGREP_TIMEOUT=10 bash security-tests/run_security_scans.sh --repo-url https://github.com/FlowiseAI/Flowise.git --tools npm-audit,semgrep'
       );
 
       const traversal = await httpRequest(`${base}/api/projects/..%2Fetc`);

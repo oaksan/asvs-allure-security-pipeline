@@ -9,3 +9,4 @@
 - [x] Fixes the exact Trivy `--skip-db-update` first-run failure without modifying `security-tests/run_security_scans.sh`
 - [x] Uses native `SKIP_NPM_INSTALL=true` env knob from `run_security_scans.sh` to avoid redundant 2-minute Angular builds
 - [x] All mandatory sections completed
+
