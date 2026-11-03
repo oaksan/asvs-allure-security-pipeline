@@ -38,3 +38,4 @@ web-ui/
 ├── allure-plugin.ts  # Add Semgrep Rule Timeout (SEMGREP_TIMEOUT=10) input & CLI preview prefix
 └── runner.test.ts    # Unit test verifying SEMGREP_TIMEOUT=10 in CLI preview and env
 ```
+

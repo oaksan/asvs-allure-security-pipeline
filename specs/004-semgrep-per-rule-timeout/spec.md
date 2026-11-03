@@ -35,3 +35,4 @@ As a security engineer running `semgrep` via `security-tests/run_security_scans.
 
 - **SC-001**: `SEMGREP_TIMEOUT=10` is automatically applied whenever `semgrep` is selected, preventing 15-minute stalls on minified files without losing any source-code SAST findings.
 - **SC-002**: `git diff` against all original upstream files remains completely empty (`0` lines changed).
+

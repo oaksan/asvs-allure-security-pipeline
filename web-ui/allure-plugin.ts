@@ -406,10 +406,17 @@ export function getAllurePluginJs(): string {
         '        <button type="button" id="ap-btn-run" class="asvs-btn asvs-btn-primary">▶ Run Security Scan</button>',
         '        <button type="button" id="ap-btn-copy" class="asvs-btn">Copy CLI Command</button>',
         '        <button type="button" id="ap-btn-cancel" class="asvs-btn asvs-btn-danger asvs-hidden">⏹ Cancel Run</button>',
+        '        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#455a64;margin-left:8px;cursor:pointer">',
+        '          <input type="checkbox" id="ap-auto-open"> Auto-open Allure Overview when scan finishes',
+        '        </label>',
         '      </div>',
         '    </div>',
         '  </div>',
         '  <div>',
+        '    <div id="ap-complete-banner" class="asvs-coverage-banner asvs-hidden" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:10px 14px">',
+        '      <span id="ap-complete-msg">✅ Scan completed! Click to load the updated Allure Report graphs:</span>',
+        '      <button type="button" id="ap-btn-open-overview" class="asvs-btn asvs-btn-success">📊 Open Updated Allure Overview</button>',
+        '    </div>',
         '    <div class="asvs-card">',
         '      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">',
         '        <h3 style="margin:0;border:none;padding:0">Live Pipeline Console (<code>stdout</code> / <code>stderr</code>)</h3>',
@@ -471,6 +478,10 @@ export function getAllurePluginJs(): string {
       this.$('#ap-btn-switch-proj').on('click', function () {
         var proj = self.$('#ap-active-project').val();
         if (proj) self.switchAllureProject(proj);
+      });
+      this.$('#ap-btn-open-overview').on('click', function () {
+        var proj = self.$('#ap-active-project').val() || 'juice-shop';
+        self.switchAllureProject(proj);
       });
 
       this.syncZapVisibility();
@@ -714,11 +725,21 @@ export function getAllurePluginJs(): string {
           badge.attr('class', 'asvs-badge asvs-badge-' + run.status);
           badge.text(run.status.toUpperCase() + (run.exitCode !== null ? ' (exit=' + run.exitCode + ')' : ''));
           self.$('#ap-btn-cancel').toggleClass('asvs-hidden', run.status !== 'running');
+          self.$('#ap-complete-banner').toggleClass('asvs-hidden', run.status !== 'completed');
+          if (run.status === 'completed' && run.repoName) {
+            self.$('#ap-complete-msg').html('✅ Scan for <strong><code>' + run.repoName + '</code></strong> completed! Load updated Allure graphs:');
+            self.$('#ap-btn-open-overview').off('click').on('click', function () {
+              self.switchAllureProject(run.repoName);
+            });
+          }
           self.loadRunsList();
           if (run.status === 'running') {
             pollTimer = setTimeout(function () { self.pollRun(); }, 1000);
           } else {
             self.loadProjectsList();
+            if (run.status === 'completed' && self.$('#ap-auto-open').is(':checked') && run.repoName) {
+              self.switchAllureProject(run.repoName);
+            }
           }
         })
         .catch(function () {});
@@ -775,10 +796,10 @@ export function getAllurePluginJs(): string {
         '<div id="am-kpis" class="asvs-kpis"></div>',
         '<div class="asvs-grid-2">',
         '  <div class="asvs-card">',
-        '    <h3>OWASP ASVS v5 Controls Mapped (<code>asvs-summary.csv</code>)</h3>',
+        '    <h3>OWASP ASVS v5 Controls Mapped (<code>asvs-summary.csv</code> + All Scanners)</h3>',
         '    <table class="asvs-table">',
-        '      <thead><tr><th>ASVS ID</th><th>Chapter</th><th>Levels</th><th>Title</th><th>Findings</th></tr></thead>',
-        '      <tbody id="am-asvs-tbody"><tr><td colspan="5">Loading...</td></tr></tbody>',
+        '      <thead><tr><th>ASVS ID</th><th>Chapter</th><th>Levels</th><th>Title</th><th>Tools</th><th>Findings</th></tr></thead>',
+        '      <tbody id="am-asvs-tbody"><tr><td colspan="6">Loading...</td></tr></tbody>',
         '    </table>',
         '  </div>',
         '  <div class="asvs-card">',
@@ -817,25 +838,33 @@ export function getAllurePluginJs(): string {
       fetch('/api/projects/' + encodeURIComponent(repoName))
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          var t = (d.rollup && d.rollup.totals) || { critical: 0, high: 0, medium: 0, low: 0, unknown: 0, grandTotal: 0 };
+          var t = (d.rollup && d.rollup.totals) || { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+          var grandTotal =
+            typeof t.grandTotal === 'number'
+              ? t.grandTotal
+              : (t.critical || 0) + (t.high || 0) + (t.medium || 0) + (t.low || 0) + (t.unknown || 0);
           self.$('#am-kpis').html([
-            '<div class="asvs-kpi crit"><div class="lbl">Critical</div><div class="val">' + t.critical + '</div></div>',
-            '<div class="asvs-kpi high"><div class="lbl">High</div><div class="val">' + t.high + '</div></div>',
-            '<div class="asvs-kpi med"><div class="lbl">Medium</div><div class="val">' + t.medium + '</div></div>',
-            '<div class="asvs-kpi low"><div class="lbl">Low</div><div class="val">' + t.low + '</div></div>',
-            '<div class="asvs-kpi"><div class="lbl">Grand Total</div><div class="val">' + t.grandTotal + '</div></div>'
+            '<div class="asvs-kpi crit"><div class="lbl">Critical</div><div class="val">' + (t.critical || 0) + '</div></div>',
+            '<div class="asvs-kpi high"><div class="lbl">High</div><div class="val">' + (t.high || 0) + '</div></div>',
+            '<div class="asvs-kpi med"><div class="lbl">Medium</div><div class="val">' + (t.medium || 0) + '</div></div>',
+            '<div class="asvs-kpi low"><div class="lbl">Low</div><div class="val">' + (t.low || 0) + '</div></div>',
+            '<div class="asvs-kpi"><div class="lbl">Grand Total</div><div class="val">' + grandTotal + '</div></div>'
           ].join(''));
 
           var rows = d.asvsSummary || [];
           self.$('#am-asvs-tbody').html(rows.length ? rows.map(function (r) {
-            return '<tr><td><strong><code>' + r.asvsId + '</code></strong></td><td>' + r.chapter + '</td><td><code>' + r.levels + '</code></td><td>' + r.title + '</td><td><strong>' + r.count + '</strong></td></tr>';
-          }).join('') : '<tr><td colspan="5">No mapped ASVS entries in asvs-summary.csv</td></tr>');
+            return '<tr><td><strong><code>' + r.asvsId + '</code></strong></td><td>' + r.chapter + '</td><td><code>' + r.levels + '</code></td><td>' + r.title + '</td><td><code>' + (r.tools || '-') + '</code></td><td><strong>' + r.count + '</strong></td></tr>';
+          }).join('') : '<tr><td colspan="6">No mapped ASVS entries found</td></tr>');
 
           var byTool = (d.rollup && d.rollup.byTool) || {};
           var keys = Object.keys(byTool);
           self.$('#am-tools-tbody').html(keys.length ? keys.map(function (k) {
             var c = byTool[k];
-            return '<tr><td><strong>' + k + '</strong></td><td>' + (c.critical || 0) + '</td><td>' + (c.high || 0) + '</td><td>' + (c.medium || 0) + '</td><td>' + (c.low || 0) + '</td><td>' + (c.unknown || 0) + '</td><td><strong>' + (c.total || 0) + '</strong></td></tr>';
+            var rowTotal =
+              typeof c.total === 'number'
+                ? c.total
+                : (c.critical || 0) + (c.high || 0) + (c.medium || 0) + (c.low || 0) + (c.unknown || 0);
+            return '<tr><td><strong>' + k + '</strong></td><td>' + (c.critical || 0) + '</td><td>' + (c.high || 0) + '</td><td>' + (c.medium || 0) + '</td><td>' + (c.low || 0) + '</td><td>' + (c.unknown || 0) + '</td><td><strong>' + rowTotal + '</strong></td></tr>';
           }).join('') : '<tr><td colspan="7">No tool rollup data available</td></tr>');
         })
         .catch(function () {});

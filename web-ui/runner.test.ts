@@ -8,6 +8,7 @@ import {
   extractRepoNameFromUrl,
   isSafeRepoDirName,
   isTrivyDbCached,
+  parseAsvsSummaryCsv,
   validateAndBuildCliCommand,
 } from './runner';
 import { createWebCliServer } from './server';
@@ -156,6 +157,13 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
 
       const traversal = await httpRequest(`${base}/api/projects/..%2Fetc`);
       assert.equal(traversal.status, 400);
+
+      const csvPath = path.join(workspaceRoot, 'allure-results', 'juice-shop', 'asvs-summary.csv');
+      const parsedCsv = parseAsvsSummaryCsv(csvPath);
+      if (parsedCsv.length > 0) {
+        assert.ok(parsedCsv[0].asvsId.startsWith('V'));
+        assert.ok(parsedCsv[0].count > 0);
+      }
     } finally {
       await new Promise<void>((resolve) => srv.close(() => resolve()));
     }

@@ -269,6 +269,68 @@ export function validateAndBuildCliCommand(opts: ScanRunOptions): BuiltCliComman
   };
 }
 
+export function prepareZapAndReportsWorkspace(workspaceDir: string, hasZap: boolean): void {
+  const secReportDir = path.join(workspaceDir, 'security-reports');
+  fs.mkdirSync(secReportDir, { recursive: true });
+  try {
+    fs.chmodSync(secReportDir, 0o777);
+  } catch {
+    // ignore chmod error if not owner
+  }
+
+  if (hasZap) {
+    for (const f of [
+      'zap-report.json',
+      'zap-report.html',
+      'zap-console.log',
+      'zap-af-plan.yaml',
+      'zap-af-plan.redacted.yaml',
+    ]) {
+      const p = path.join(secReportDir, f);
+      if (fs.existsSync(p)) {
+        try {
+          fs.unlinkSync(p);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const zapYaml = path.join(workspaceDir, 'zap.yaml');
+    try {
+      fs.writeFileSync(zapYaml, '');
+      fs.chmodSync(zapYaml, 0o666);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export function cleanupTempZapFiles(workspaceDir: string): void {
+  const zapYaml = path.join(workspaceDir, 'zap.yaml');
+  if (fs.existsSync(zapYaml)) {
+    try {
+      fs.unlinkSync(zapYaml);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export function resetAllureResultsKeepHistory(workspaceDir: string, repoName: string): void {
+  if (!isSafeRepoDirName(repoName)) return;
+  const resultsDir = path.join(workspaceDir, 'allure-results', repoName);
+  if (!fs.existsSync(resultsDir)) return;
+  try {
+    for (const entry of fs.readdirSync(resultsDir)) {
+      if (entry === 'history') continue;
+      const fullPath = path.join(resultsDir, entry);
+      fs.rmSync(fullPath, { recursive: true, force: true });
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 export class PipelineRunManager {
   private runs = new Map<string, PipelineRunRecord>();
   private procs = new Map<string, ChildProcess>();
@@ -332,6 +394,8 @@ export class PipelineRunManager {
 
     const launchMainScript = () => {
       if (record.status === 'canceled') return;
+      prepareZapAndReportsWorkspace(this.workspaceDir, opts.tools.includes('zap'));
+      resetAllureResultsKeepHistory(this.workspaceDir, built.repoName);
       const child = spawn('bash', [built.script, ...built.args], {
         cwd: this.workspaceDir,
         shell: false,
@@ -348,6 +412,7 @@ export class PipelineRunManager {
 
       child.on('close', (code) => {
         this.procs.delete(id);
+        cleanupTempZapFiles(this.workspaceDir);
         const allureBinExe = path.join(localAllureBin, 'allure');
         const resultsDir = path.join(this.workspaceDir, 'allure-results', built.repoName);
         const reportDir = path.join(this.workspaceDir, 'allure-report', built.repoName);
@@ -381,6 +446,7 @@ export class PipelineRunManager {
 
       child.on('error', (err) => {
         this.procs.delete(id);
+        cleanupTempZapFiles(this.workspaceDir);
         record.logs.push(`Process error: ${err.message}`);
         record.endTime = new Date().toISOString();
         record.exitCode = 1;
@@ -435,13 +501,16 @@ export class PipelineRunManager {
   }
 }
 
-export function parseAsvsSummaryCsv(csvPath: string): Array<{
+export interface AsvsSummaryRow {
   asvsId: string;
   chapter: string;
   title: string;
   levels: string;
+  tools: string;
   count: number;
-}> {
+}
+
+export function parseAsvsSummaryCsv(csvPath: string): AsvsSummaryRow[] {
   if (!fs.existsSync(csvPath)) return [];
   const lines = fs
     .readFileSync(csvPath, 'utf8')
@@ -449,29 +518,153 @@ export function parseAsvsSummaryCsv(csvPath: string): Array<{
     .filter((l) => l.trim().length > 0);
   if (lines.length <= 1) return [];
 
-  const out: Array<{
-    asvsId: string;
-    chapter: string;
-    title: string;
-    levels: string;
-    count: number;
-  }> = [];
+  const out: AsvsSummaryRow[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const row = lines[i];
-    // Format from asvs-unified-to-allure.ts: asvs_id,chapter,title,levels,count (with JSON.stringify quotes on strings)
-    const match = /^"([^"]*)","([^"]*)","((?:[^"]|"")*)","([^"]*)",(\d+)$/.exec(row.trim());
+    const row = lines[i].trim();
+    // Primary format from asvs-unified-to-allure.ts (line 1309):
+    // control,chapter,levels,count,tools -> "V15.3","V15: Secure Coding and Architecture",["L1"],42,["semgrep"]
+    try {
+      const parsed = JSON.parse(`[${row}]`);
+      if (Array.isArray(parsed) && parsed.length === 5 && typeof parsed[3] === 'number') {
+        const asvsId = String(parsed[0] || '');
+        const chapter = String(parsed[1] || '');
+        const title = chapter.replace(/^V\d+(?:\.\d+)?:\s*/i, '') || chapter;
+        const levels = Array.isArray(parsed[2]) ? parsed[2].join(', ') : String(parsed[2] || '');
+        const count = Number(parsed[3]) || 0;
+        const tools = Array.isArray(parsed[4]) ? parsed[4].join(', ') : String(parsed[4] || '');
+        out.push({ asvsId, chapter, title, levels, tools, count });
+        continue;
+      }
+    } catch {
+      // Fallback to legacy string-quoted format below
+    }
+
+    const match = /^"([^"]*)","([^"]*)","((?:[^"]|"")*)","([^"]*)",(\d+)$/.exec(row);
     if (match) {
       out.push({
         asvsId: match[1],
         chapter: match[2],
         title: match[3].replace(/""/g, '"'),
         levels: match[4],
+        tools: '',
         count: Number(match[5]),
       });
     }
   }
   return out;
+}
+
+export function aggregateAsvsFromAllureResults(
+  resDir: string,
+  csvRows: AsvsSummaryRow[] = []
+): AsvsSummaryRow[] {
+  const byControl = new Map<
+    string,
+    {
+      asvsId: string;
+      chapter: string;
+      titles: Set<string>;
+      levels: Set<string>;
+      tools: Set<string>;
+      count: number;
+    }
+  >();
+
+  if (fs.existsSync(resDir)) {
+    const seenFullNames = new Set<string>();
+    const files = fs.readdirSync(resDir).filter((f) => f.endsWith('-result.json'));
+    for (const file of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(resDir, file), 'utf8'));
+        const labels: Array<{ name: string; value: string }> = Array.isArray(data?.labels)
+          ? data.labels
+          : [];
+        const feature = labels.find((l) => l.name === 'feature')?.value || '';
+        if (!feature || feature === 'Meta') continue;
+
+        const dedupeKey = `${feature}::${data.fullName || data.name || file}`;
+        if (seenFullNames.has(dedupeKey)) continue;
+        seenFullNames.add(dedupeKey);
+
+        const asvsTags = labels
+          .filter((l) => l.name === 'tag' && /^ASVS:/i.test(l.value || ''))
+          .map((l) => l.value.replace(/^ASVS:(?:5\.0\.0\/)?/i, '').trim())
+          .filter(Boolean);
+        const suiteChapter =
+          labels
+            .find((l) => l.name === 'suite' && /^ASVS:/i.test(l.value || ''))
+            ?.value.replace(/^ASVS:\s*/i, '')
+            .trim() || '';
+        const epicTitle = labels.find((l) => l.name === 'epic')?.value || '';
+        const levelVals = labels.filter((l) => l.name === 'level').map((l) => l.value);
+
+        const controlIds = asvsTags.length > 0 ? asvsTags : suiteChapter ? [suiteChapter.split(':')[0]] : [];
+        for (const cid of controlIds) {
+          let entry = byControl.get(cid);
+          if (!entry) {
+            entry = {
+              asvsId: cid,
+              chapter: suiteChapter || cid,
+              titles: new Set<string>(),
+              levels: new Set<string>(),
+              tools: new Set<string>(),
+              count: 0,
+            };
+            byControl.set(cid, entry);
+          }
+          if (suiteChapter && (!entry.chapter || entry.chapter === cid)) {
+            entry.chapter = suiteChapter;
+          }
+          if (epicTitle) entry.titles.add(epicTitle);
+          for (const lv of levelVals) {
+            if (lv) entry.levels.add(lv);
+          }
+          entry.tools.add(feature);
+          entry.count += 1;
+        }
+      } catch {
+        // ignore malformed result json
+      }
+    }
+  }
+
+  for (const row of csvRows) {
+    if (!byControl.has(row.asvsId)) {
+      byControl.set(row.asvsId, {
+        asvsId: row.asvsId,
+        chapter: row.chapter,
+        titles: new Set(row.title ? [row.title] : []),
+        levels: new Set(
+          row.levels
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        ),
+        tools: new Set(
+          (row.tools || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        ),
+        count: row.count,
+      });
+    }
+  }
+
+  return Array.from(byControl.values())
+    .sort((a, b) => b.count - a.count || a.asvsId.localeCompare(b.asvsId))
+    .map((e) => ({
+      asvsId: e.asvsId,
+      chapter: e.chapter,
+      title:
+        Array.from(e.titles).join(' / ') ||
+        e.chapter.replace(/^V\d+(?:\.\d+)?:\s*/i, '') ||
+        e.chapter,
+      levels: Array.from(e.levels).sort().join(', ') || 'L1',
+      tools: Array.from(e.tools).sort().join(', '),
+      count: e.count,
+    }));
 }
 
 export function listEvaluatedProjects(workspaceDir: string): Array<Record<string, any>> {
@@ -540,7 +733,8 @@ export function getProjectArtifacts(workspaceDir: string, repoName: string): Rec
     ? fs.readFileSync(envPropPath, 'utf8')
     : '';
 
-  const asvsSummary = parseAsvsSummaryCsv(path.join(resDir, 'asvs-summary.csv'));
+  const csvRows = parseAsvsSummaryCsv(path.join(resDir, 'asvs-summary.csv'));
+  const asvsSummary = aggregateAsvsFromAllureResults(resDir, csvRows);
 
   const timingsPath = path.join(workspaceDir, 'timings.csv');
   const timingsCsv = fs.existsSync(timingsPath) ? fs.readFileSync(timingsPath, 'utf8') : '';
