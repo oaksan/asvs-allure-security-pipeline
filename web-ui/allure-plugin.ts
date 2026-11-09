@@ -429,6 +429,28 @@ a.side-nav__link[href*="graph"] {
 .node__anchor .fa-exclamation-circle.text_status_broken {
   color: #5d4037 !important;
 }
+
+/* SDD 020: Hide Status Widget from Overview */
+.widget[data-id="status-chart"],
+.widget:has(.status-widget) {
+  display: none !important;
+}
+
+/* SDD 020: Trend Chart X-Axis Timestamp Formatting and Clearance */
+.history-trend__chart svg,
+.history-trend svg {
+  overflow: visible !important;
+}
+.history-trend__chart .chart__axis_x text {
+  font-size: 10px !important;
+  fill: #4a5568 !important;
+}
+
+/* SDD 020: Summary Donut Legend Styling */
+.summary-widget .chart__legend {
+  display: grid !important;
+  row-gap: 4px;
+}
 `;
 }
 
@@ -605,12 +627,14 @@ export function getAllurePluginJs(): string {
     if (allure.api.widgets && allure.api.widgets.graph && allure.api.widgets.widgets) {
       var graphWidgets = allure.api.widgets.graph;
       var overviewWidgets = allure.api.widgets.widgets;
-      var chartsToMove = ['status-chart', 'severity', 'duration'];
+      var chartsToMove = ['severity', 'duration']; // Status-chart removed in SDD 020
       chartsToMove.forEach(function (name) {
         if (graphWidgets[name] && !overviewWidgets[name]) {
           overviewWidgets[name] = graphWidgets[name];
         }
       });
+      // Explicitly remove status-chart from Overview widgets (SDD 020)
+      delete overviewWidgets['status-chart'];
     }
 
     // 2. Remove Graphs tab from navigation
@@ -632,6 +656,80 @@ export function getAllurePluginJs(): string {
         window.location.hash = '#';
       }
     });
+  } catch (e) {}
+
+  // SDD 020: Include Legend in Overview Summary Percentage Donut Chart
+  try {
+    if (allure.api.widgets && allure.api.widgets.widgets && allure.api.widgets.widgets.summary) {
+      var summaryDef = allure.api.widgets.widgets.summary;
+      if (summaryDef.widget && summaryDef.widget.prototype) {
+        var origSummaryRender = summaryDef.widget.prototype.onRender;
+        summaryDef.widget.prototype.onRender = function () {
+          origSummaryRender.apply(this, arguments);
+          try {
+            var chartRegion = this.getRegion && this.getRegion('chart');
+            var curView = chartRegion ? chartRegion.currentView : null;
+            if (curView && curView.constructor && !curView.showLegend) {
+              var ChartClass = curView.constructor;
+              this.showChildView('chart', new ChartClass({ model: this.model, showLegend: true }));
+            }
+          } catch (e) {}
+        };
+      }
+    }
+  } catch (e) {}
+
+  // SDD 020: Format Date/Time on Trend Chart X-Axis and Tooltip
+  try {
+    var formatTrendDate = function (val) {
+      if (!val) return '';
+      if (typeof val === 'string' && val.indexOf('/') === 2 && val.indexOf(':') !== -1) {
+        return val.trim();
+      }
+      var d = typeof val === 'number' ? new Date(val) : new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      var day = pad(d.getDate());
+      var month = pad(d.getMonth() + 1);
+      var year = d.getFullYear();
+      var hours = pad(d.getHours());
+      var mins = pad(d.getMinutes());
+      return day + '/' + month + '/' + year + ' ' + hours + ':' + mins;
+    };
+
+    if (allure.api.widgets && allure.api.widgets.widgets && allure.api.widgets.widgets['history-trend']) {
+      var trendDef = allure.api.widgets.widgets['history-trend'];
+      if (trendDef.model && trendDef.model.prototype && trendDef.model.prototype.parse) {
+        var origTrendParse = trendDef.model.prototype.parse;
+        trendDef.model.prototype.parse = function (rawList) {
+          var items = origTrendParse.apply(this, arguments);
+          if (Array.isArray(items)) {
+            for (var i = 0; i < items.length; i++) {
+              var it = items[i];
+              var raw = (rawList && rawList[i]) || it;
+              var ts = it.dateStr || raw.dateStr || it.timestamp || raw.timestamp || it.date || raw.date || it.buildName || raw.buildName;
+              if (ts) {
+                it.name = formatTrendDate(ts);
+              }
+            }
+          }
+          return items;
+        };
+      }
+      if (trendDef.widget && trendDef.widget.prototype && trendDef.widget.prototype.onRender) {
+        var origTrendRender = trendDef.widget.prototype.onRender;
+        trendDef.widget.prototype.onRender = function () {
+          origTrendRender.apply(this, arguments);
+          try {
+            var chartRegion = this.getRegion && this.getRegion('chart');
+            var chartView = chartRegion ? chartRegion.currentView : null;
+            if (chartView) {
+              chartView.PAD_BOTTOM = 85;
+            }
+          } catch (e) {}
+        };
+      }
+    }
   } catch (e) {}
 
   var activeRunId = null;

@@ -10,6 +10,7 @@ import {
   findApplicationCallers,
   readSourceSnippet,
   RawReportsIndex,
+  enrichHistoryTrend,
 } from './enricher';
 
 test('enrichResultData transforms coarse section_id to atomic req_id and L1 level', () => {
@@ -531,5 +532,61 @@ test('applies semantic yellow/warning styling to passed findings and red to fail
   assert.ok(!enrichedWarning.data.descriptionHtml.includes('#2e7d32')); // no green
   assert.ok(!enrichedWarning.data.descriptionHtml.includes('#f1f8e9')); // no green
 });
+
+test('enrichHistoryTrend maps execution timestamps and formatted dates into history-trend.json (SDD 020)', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'allure-trend-test-'));
+  const reportDir = path.join(tmpDir, 'allure-report');
+  const widgetsDir = path.join(reportDir, 'widgets');
+  const historyDir = path.join(reportDir, 'history');
+  fs.mkdirSync(widgetsDir, { recursive: true });
+  fs.mkdirSync(historyDir, { recursive: true });
+
+  // 1. Setup summary.json with time.start
+  const tsLatest = 1794232756889; // 09/11/2026 10:59 UTC-3
+  fs.writeFileSync(
+    path.join(widgetsDir, 'summary.json'),
+    JSON.stringify({ time: { start: tsLatest, stop: tsLatest + 60000 } }),
+    'utf8'
+  );
+
+  // 2. Setup history.json with an older run
+  const tsOlder = 1793836242022; // 04/11/2026 20:50 UTC-3
+  fs.writeFileSync(
+    path.join(historyDir, 'history.json'),
+    JSON.stringify({
+      'test-1': {
+        items: [{ time: { start: tsOlder, stop: tsOlder + 600 } }],
+      },
+    }),
+    'utf8'
+  );
+
+  // 3. Setup mock history-trend.json with 2 items
+  fs.writeFileSync(
+    path.join(widgetsDir, 'history-trend.json'),
+    JSON.stringify([
+      { buildOrder: 2, data: { failed: 10, passed: 5 } },
+      { buildOrder: 1, data: { failed: 8, passed: 5 } },
+    ]),
+    'utf8'
+  );
+
+  const res = enrichHistoryTrend(reportDir);
+  assert.strictEqual(res, true);
+
+  const enrichedContent = JSON.parse(
+    fs.readFileSync(path.join(widgetsDir, 'history-trend.json'), 'utf8')
+  );
+  assert.strictEqual(enrichedContent.length, 2);
+  assert.ok(enrichedContent[0].timestamp);
+  assert.ok(enrichedContent[0].dateStr);
+  assert.strictEqual(enrichedContent[0].timestamp, tsLatest);
+  assert.strictEqual(enrichedContent[1].timestamp, tsOlder);
+  assert.ok(enrichedContent[0].dateStr.includes('/2026'));
+  assert.ok(enrichedContent[1].dateStr.includes('/2026'));
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
 
 

@@ -1172,6 +1172,124 @@ export function enrichAllureResultsDir(
 }
 
 /**
+ * Enriches history-trend.json with date and timestamp for each scan execution (SDD 020).
+ */
+export function enrichHistoryTrend(reportDir: string, resultsDir?: string): boolean {
+  try {
+    const widgetsTrendPath = path.join(reportDir, 'widgets', 'history-trend.json');
+    const historyTrendPath = path.join(reportDir, 'history', 'history-trend.json');
+
+    if (!fs.existsSync(widgetsTrendPath) && !fs.existsSync(historyTrendPath)) {
+      return false;
+    }
+
+    // 1. Collect timestamps from widgets/summary.json and history.json
+    const summaryPath = path.join(reportDir, 'widgets', 'summary.json');
+    let latestTimestamp: number | null = null;
+    if (fs.existsSync(summaryPath)) {
+      try {
+        const sumData = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+        if (sumData && sumData.time && typeof sumData.time.start === 'number') {
+          latestTimestamp = sumData.time.start;
+        }
+      } catch {}
+    }
+
+    const historyJsonCandidates = [
+      path.join(reportDir, 'history', 'history.json'),
+      resultsDir ? path.join(resultsDir, 'history', 'history.json') : null,
+    ].filter(Boolean) as string[];
+
+    const timestamps = new Set<number>();
+    if (latestTimestamp) {
+      timestamps.add(latestTimestamp);
+    }
+
+    for (const hp of historyJsonCandidates) {
+      if (fs.existsSync(hp)) {
+        try {
+          const hData = JSON.parse(fs.readFileSync(hp, 'utf8'));
+          for (const key of Object.keys(hData)) {
+            const entry = hData[key];
+            if (entry && Array.isArray(entry.items)) {
+              for (const it of entry.items) {
+                const st = it?.time?.start;
+                if (typeof st === 'number') {
+                  timestamps.add(st);
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Cluster timestamps within 30 minutes of each other
+    const sorted = Array.from(timestamps).sort((a, b) => a - b);
+    const clusters: number[][] = [];
+    for (const t of sorted) {
+      if (clusters.length === 0 || (t - clusters[clusters.length - 1][clusters[clusters.length - 1].length - 1]) > 30 * 60 * 1000) {
+        clusters.push([t]);
+      } else {
+        clusters[clusters.length - 1].push(t);
+      }
+    }
+    const clusterStarts = clusters.map((c) => c[0]); // [oldest, ..., newest]
+
+    const formatDate = (ts: number): string => {
+      const d = new Date(ts);
+      const pad = (n: number) => (n < 10 ? '0' : '') + n;
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    // 2. Read history-trend.json
+    const sourceTrendPath = fs.existsSync(widgetsTrendPath) ? widgetsTrendPath : historyTrendPath;
+    const trendItems = JSON.parse(fs.readFileSync(sourceTrendPath, 'utf8'));
+    if (!Array.isArray(trendItems) || trendItems.length === 0) {
+      return false;
+    }
+
+    // In Allure history-trend.json, items are listed reverse-chronologically (index 0 is newest)
+    let clusterIdx = clusterStarts.length - 1;
+    for (let i = 0; i < trendItems.length; i++) {
+      const item = trendItems[i];
+      let assignedTs: number | null = null;
+      if (clusterIdx >= 0) {
+        assignedTs = clusterStarts[clusterIdx];
+        clusterIdx--;
+      } else if (latestTimestamp) {
+        assignedTs = latestTimestamp - i * 24 * 3600 * 1000;
+      }
+      if (assignedTs) {
+        const formatted = formatDate(assignedTs);
+        item.timestamp = assignedTs;
+        item.dateStr = formatted;
+        item.date = formatted;
+        item.buildName = formatted;
+      }
+    }
+
+    const updatedJson = JSON.stringify(trendItems, null, 2);
+    if (fs.existsSync(path.dirname(widgetsTrendPath))) {
+      fs.writeFileSync(widgetsTrendPath, updatedJson, 'utf8');
+    }
+    if (fs.existsSync(path.dirname(historyTrendPath))) {
+      fs.writeFileSync(historyTrendPath, updatedJson, 'utf8');
+    }
+    if (resultsDir) {
+      const resHistTrend = path.join(resultsDir, 'history', 'history-trend.json');
+      if (fs.existsSync(path.dirname(resHistTrend))) {
+        fs.writeFileSync(resHistTrend, updatedJson, 'utf8');
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('[enricher] enrichHistoryTrend warning:', err);
+    return false;
+  }
+}
+
+/**
  * Re-generates Allure HTML report using the cached local Allure binary or system CLI.
  */
 export function regenerateAllureHtmlReport(
@@ -1217,6 +1335,9 @@ export function regenerateAllureHtmlReport(
     if (res.status === 0) {
       try {
         installAllureCliPlugin(workspaceDir);
+      } catch {}
+      try {
+        enrichHistoryTrend(reportDir, resultsDir);
       } catch {}
     }
     const output = (res.stdout || '') + (res.stderr || '');

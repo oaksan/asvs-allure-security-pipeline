@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import * as http from 'node:http';
 import * as path from 'node:path';
+import * as vm from 'node:vm';
 import { describe, it } from 'node:test';
 
 import { getAllurePluginCss, getAllurePluginJs } from './allure-plugin';
@@ -294,7 +295,7 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
     assert.ok(css.includes('a.side-nav__link[href*="graph"]'));
 
     const js = getAllurePluginJs();
-    assert.ok(js.includes("['status-chart', 'severity', 'duration']"));
+    assert.ok(js.includes("['severity', 'duration']"));
     assert.ok(js.includes('overviewWidgets[name] = graphWidgets[name]'));
     assert.ok(js.includes("t.tabName === 'graph'"));
     assert.ok(js.includes("window.location.hash = '#'"));
@@ -311,5 +312,24 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
     assert.ok(js.includes("packages: { name: 'Findings List' }"));
     assert.ok(js.includes("suites: { name: 'Findings by Requirements' }"));
     assert.ok(js.includes('syncFindingsTabLabels'));
+  });
+
+  it('indicates date/time on trend chart, includes summary donut legend, and removes status chart (SDD 020)', () => {
+    const css = getAllurePluginCss();
+    assert.ok(css.includes('.widget[data-id="status-chart"]'));
+    assert.ok(css.includes('.widget:has(.status-widget)'));
+    assert.ok(css.includes('.history-trend__chart svg'));
+    assert.ok(css.includes('.summary-widget .chart__legend'));
+
+    const js = getAllurePluginJs();
+    // 1. Status chart removal
+    assert.ok(js.includes("delete overviewWidgets['status-chart']"));
+    // 2. Summary chart legend
+    assert.ok(js.includes("showLegend: true"));
+    assert.ok(js.includes("allure.api.widgets.widgets.summary"));
+    // 3. Trend chart timestamp formatting and padding
+    assert.ok(js.includes("formatTrendDate"));
+    assert.ok(js.includes("allure.api.widgets.widgets['history-trend']"));
+    assert.ok(js.includes("chartView.PAD_BOTTOM = 85"));
   });
 });
