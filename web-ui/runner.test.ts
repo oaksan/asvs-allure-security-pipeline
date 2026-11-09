@@ -332,4 +332,32 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
     assert.ok(js.includes("allure.api.widgets.widgets['history-trend']"));
     assert.ok(js.includes("chartView.PAD_BOTTOM = 85"));
   });
+
+  it('restores security-scan modules and validates complete plugin JavaScript syntax (SDD 021)', () => {
+    const js = getAllurePluginJs();
+    // 1. Verify syntax compiles cleanly without SyntaxError
+    assert.doesNotThrow(() => {
+      new vm.Script(js);
+    });
+
+    // 2. Verify all scanning modules are present in the launcher
+    const expectedModules = [
+      'npm-audit',
+      'trivy-fs',
+      'semgrep',
+      'gitleaks',
+      'zap',
+      'odc',
+      'bandit',
+      'sonar',
+    ];
+    for (const mod of expectedModules) {
+      assert.ok(js.includes(`value="${mod}"`), `Missing module checkbox for ${mod}`);
+      assert.ok(js.includes(`chip-${mod}`), `Missing chip markup for ${mod}`);
+    }
+
+    // 3. Verify security-scan and asvs-matrix tab registrations
+    assert.ok(js.includes("allure.api.addTab('security-scan'"));
+    assert.ok(js.includes("allure.api.addTab('asvs-matrix'"));
+  });
 });
