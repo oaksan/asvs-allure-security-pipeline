@@ -51,3 +51,5 @@ docker-data/
 .env.local
 .env.*.local
 .envrc
+/juice-shop/
+/asvs-allure-security-pipeline/
