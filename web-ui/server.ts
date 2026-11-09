@@ -13,10 +13,15 @@ import {
   getAllurePluginJs,
   installAllureCliPlugin,
 } from './allure-plugin';
+import { loadAsvsCatalog } from './asvs-catalog';
 import {
   detectToolsForRepo,
   managePresetContainer,
 } from './detector';
+import {
+  enrichAllureResultsDir,
+  regenerateAllureHtmlReport,
+} from './enricher';
 import {
   PipelineRunManager,
   getProjectArtifacts,
@@ -101,7 +106,7 @@ function injectPluginTagsIntoAllureHtml(html: string): string {
   return out;
 }
 
-function serveAllureFile(res: http.ServerResponse, reportDir: string, relativePath: string): void {
+function serveAllureFile(res: http.ServerResponse, reportDir: string, relativePath: string, method = 'GET'): void {
   const resolvedBase = path.resolve(reportDir);
   const relClean = relativePath.replace(/^\/+/, '') || 'index.html';
   const targetPath = path.resolve(resolvedBase, relClean);
@@ -121,6 +126,15 @@ function serveAllureFile(res: http.ServerResponse, reportDir: string, relativePa
   if (path.basename(finalPath) === 'index.html') {
     const rawHtml = fs.readFileSync(finalPath, 'utf8');
     const injected = injectPluginTagsIntoAllureHtml(rawHtml);
+    if (method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(injected),
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end();
+      return;
+    }
     return sendText(res, 200, 'text/html; charset=utf-8', injected);
   }
 
@@ -132,6 +146,10 @@ function serveAllureFile(res: http.ServerResponse, reportDir: string, relativePa
     'Content-Length': buf.length,
     'X-Content-Type-Options': 'nosniff',
   });
+  if (method === 'HEAD') {
+    res.end();
+    return;
+  }
   res.end(buf);
 }
 
@@ -231,6 +249,16 @@ export function createWebCliServer(workspaceDir: string = path.resolve(__dirname
         return sendJson(res, ok ? 200 : 400, { canceled: ok });
       }
 
+      if (method === 'GET' && pathname === '/api/asvs-catalog') {
+        const catalog = loadAsvsCatalog(rootPath);
+        return sendJson(res, 200, {
+          source: 'docs/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv',
+          granularity: 'req_id',
+          stats: catalog.stats,
+          requirements: catalog.requirements,
+        });
+      }
+
       if (method === 'GET' && pathname === '/api/projects') {
         const projects = listEvaluatedProjects(rootPath);
         if (!projects.some((p) => p.repoName === activeProject) && projects.length > 0) {
@@ -263,8 +291,38 @@ export function createWebCliServer(workspaceDir: string = path.resolve(__dirname
         }
       }
 
+      if (method === 'POST' && pathname.startsWith('/api/enrich/')) {
+        const repoName = decodeURIComponent(pathname.slice('/api/enrich/'.length));
+        if (!isSafeRepoDirName(repoName)) {
+          return sendJson(res, 400, { error: 'Invalid repository name' });
+        }
+        const resultsDir = path.join(rootPath, 'allure-results', repoName);
+        if (!fs.existsSync(resultsDir)) {
+          return sendJson(res, 404, { error: `Results directory not found for ${repoName}` });
+        }
+        const levelQuery = parsedUrl.searchParams.get('level');
+        const levelFilter: 'L1' | 'all' = levelQuery === 'all' ? 'all' : 'L1';
+        const cleanHistory = parsedUrl.searchParams.get('cleanHistory') !== 'false';
+        const catalog = loadAsvsCatalog(rootPath);
+        const stats = enrichAllureResultsDir(resultsDir, catalog, {
+          updateSummaryCsv: true,
+          levelFilter,
+          excludeUtilityArtifacts: true,
+          cleanHistory,
+        });
+        const genRes = regenerateAllureHtmlReport(rootPath, repoName, { cleanHistory });
+        installAllureCliPlugin(rootPath);
+        return sendJson(res, 200, {
+          repoName,
+          levelFilter,
+          stats,
+          reportRegenerated: genRes.success,
+          reportOutput: genRes.output.trim(),
+        });
+      }
+
       // Serve explicit /allure-report/:repo/* if requested
-      if (method === 'GET' && pathname.startsWith('/allure-report/')) {
+      if ((method === 'GET' || method === 'HEAD') && pathname.startsWith('/allure-report/')) {
         const rest = pathname.slice('/allure-report/'.length);
         const slashIdx = rest.indexOf('/');
         const repoName = decodeURIComponent(slashIdx >= 0 ? rest.slice(0, slashIdx) : rest);
@@ -273,14 +331,14 @@ export function createWebCliServer(workspaceDir: string = path.resolve(__dirname
           return sendJson(res, 400, { error: 'Invalid repository name' });
         }
         const reportDir = path.join(rootPath, 'allure-report', repoName);
-        return serveAllureFile(res, reportDir, relFile);
+        return serveAllureFile(res, reportDir, relFile, method);
       }
 
       // Root ("/") and all relative Allure assets ("/app.js", "/styles.css", "/data/*", "/widgets/*")
       // serve the active Allure Report directly!
-      if (method === 'GET') {
+      if (method === 'GET' || method === 'HEAD') {
         const activeReportDir = path.join(rootPath, 'allure-report', activeProject);
-        return serveAllureFile(res, activeReportDir, pathname);
+        return serveAllureFile(res, activeReportDir, pathname, method);
       }
 
       return sendJson(res, 404, { error: 'Not found' });

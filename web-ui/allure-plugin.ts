@@ -10,10 +10,27 @@ import * as path from 'path';
 
 export function getAllurePluginCss(): string {
   return `
-.asvs-plugin-page {
-  padding: 20px 28px;
+#content .app {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.app__content {
+  min-height: 0;
   height: 100%;
   overflow-y: auto;
+  position: relative;
+}
+.asvs-plugin-page {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px 28px 48px 28px;
   background: #f5f7fa;
   color: #263238;
   font-family: Helvetica, Arial, sans-serif;
@@ -240,6 +257,178 @@ export function getAllurePluginCss(): string {
 .asvs-badge-completed { background: #e8f5e9; color: #2e7d32; }
 .asvs-badge-failed, .asvs-badge-canceled { background: #ffebee; color: #c62828; }
 .asvs-hidden { display: none !important; }
+
+/* Standardize Allure summary widget subtitle: "test cases" -> "findings" (SDD 011) */
+.splash__subtitle {
+  font-size: 0 !important;
+  color: transparent !important;
+  line-height: 0 !important;
+}
+.splash__subtitle::after {
+  content: "findings" !important;
+  font-size: 15px !important;
+  color: #607d8b !important;
+  display: block !important;
+  text-transform: lowercase !important;
+  letter-spacing: 0.5px !important;
+  line-height: 1.4 !important;
+  font-weight: 500 !important;
+}
+
+/* Remove redundant Categories Widget and Side-Nav Tab (SDD 013) */
+.side-nav__item:has(a[href*="categories"]),
+.side-nav__item[data-tooltip*="Categories"],
+.side-nav__item[data-tooltip*="Categorias"],
+a.side-nav__link[href*="categories"] {
+  display: none !important;
+}
+
+.widget:has(a[href*="categories"]),
+.widget:has(.widget__title a[href*="categories"]) {
+  display: none !important;
+}
+
+/* Remove Graphs Tab from Sidebar (SDD 018) */
+.side-nav__item:has(a[href*="graph"]),
+.side-nav__item[data-tooltip*="Graphs"],
+.side-nav__item[data-tooltip*="Gráficos"],
+a.side-nav__link[href*="graph"] {
+  display: none !important;
+}
+
+/* SDD 019: Rename sidebar tabs for findings navigation */
+.side-nav__item a[href*="behaviors"] .side-nav__text {
+  font-size: 0 !important;
+}
+.side-nav__item a[href*="behaviors"] .side-nav__text::after {
+  content: "Findings by Tools" !important;
+  font-size: 13px !important;
+}
+
+.side-nav__item a[href*="packages"] .side-nav__text {
+  font-size: 0 !important;
+}
+.side-nav__item a[href*="packages"] .side-nav__text::after {
+  content: "Findings List" !important;
+  font-size: 13px !important;
+}
+
+.side-nav__item a[href*="suites"] .side-nav__text {
+  font-size: 0 !important;
+}
+.side-nav__item a[href*="suites"] .side-nav__text::after {
+  content: "Findings by Requirements" !important;
+  font-size: 13px !important;
+}
+
+/* SDD 017: Reclassify non-blocking findings (Passed -> Warning / Yellow) & Broken -> Brown */
+
+/* 1. Passed -> Warning (Amarelo / Yellow) */
+.bar__fill_status_passed {
+  background: #fbc02d !important;
+}
+.y-label_status_passed {
+  background: #fbc02d !important;
+  color: #212121 !important;
+  font-weight: 700 !important;
+}
+.n-label_status_passed {
+  color: #f57f17 !important;
+  border-color: #fbc02d !important;
+}
+.alert_status_passed {
+  background: #fff9c4 !important;
+  color: #f57f17 !important;
+}
+.label_status_passed {
+  background-color: #fbc02d !important;
+  color: #212121 !important;
+  font-weight: 700 !important;
+}
+.text_status_passed {
+  color: #f57f17 !important;
+}
+.message_status_passed {
+  border-color: #fbc02d !important;
+}
+.status-details_status_passed {
+  background: #fffde7 !important;
+  border-color: #fbc02d !important;
+}
+.chart__legend-icon_status_passed {
+  background: #fbc02d !important;
+}
+.chart__fill_status_passed {
+  fill: #fbc02d !important;
+}
+
+/* Tree icon for Warning (was checkmark, now warning triangle in amber/yellow) */
+.fa-check-circle.text_status_passed::before,
+.node__anchor .fa-check-circle::before,
+.fa-check-circle.fa-fw.text_status_passed::before {
+  content: "\\f071" !important; /* FontAwesome fa-exclamation-triangle */
+  color: #f57f17 !important;
+}
+
+/* Status header badge in test-result pane: 'Passed' -> 'Warning' */
+.pane__header .label_status_passed,
+.test-result__status .label_status_passed,
+.pane__title .label_status_passed {
+  font-size: 0 !important;
+  padding: 2px 8px !important;
+}
+.pane__header .label_status_passed::after,
+.test-result__status .label_status_passed::after,
+.pane__title .label_status_passed::after {
+  content: "Warning" !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  color: #212121 !important;
+}
+
+/* 2. Broken -> Marrom / Brown (Previne conflito com Amarelo do Warning) */
+.bar__fill_status_broken {
+  background: #795548 !important;
+}
+.y-label_status_broken {
+  background: #795548 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+.n-label_status_broken {
+  color: #5d4037 !important;
+  border-color: #795548 !important;
+}
+.alert_status_broken {
+  background: #efebe9 !important;
+  color: #4e342e !important;
+}
+.label_status_broken {
+  background-color: #795548 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+.text_status_broken {
+  color: #5d4037 !important;
+}
+.message_status_broken {
+  border-color: #795548 !important;
+}
+.status-details_status_broken {
+  background: #efebe9 !important;
+  border-color: #8d6e63 !important;
+}
+.chart__legend-icon_status_broken {
+  background: #795548 !important;
+}
+.chart__fill_status_broken {
+  fill: #795548 !important;
+}
+.node__anchor .fa-exclamation-circle.text_status_broken {
+  color: #5d4037 !important;
+}
 `;
 }
 
@@ -252,32 +441,212 @@ export function getAllurePluginJs(): string {
   }
 
   allure.api.addTranslation('en', {
+    status: {
+      passed: 'Warning',
+      broken: 'Broken',
+      failed: 'Failed',
+      skipped: 'Skipped',
+      unknown: 'Unknown'
+    },
+    marks: {
+      newPassed: 'New warning'
+    },
     tab: {
       securityScan: { name: 'Security Scan (CLI)' },
       asvsMatrix: { name: 'ASVS v5 Matrix' }
+    },
+    widget: {
+      summary: {
+        testResults: 'finding',
+        testResults_plural: 'findings'
+      }
     }
   });
 
   allure.api.addTranslation('br', {
+    status: {
+      passed: 'Warning',
+      broken: 'Quebrado',
+      failed: 'Falhou',
+      skipped: 'Ignorado',
+      unknown: 'Desconhecido'
+    },
+    marks: {
+      newPassed: 'Novo aviso'
+    },
     tab: {
       securityScan: { name: 'Executar Scan (CLI)' },
       asvsMatrix: { name: 'Matriz ASVS v5' }
+    },
+    widget: {
+      summary: {
+        testResults: 'finding',
+        testResults_plural: 'findings'
+      }
     }
   });
+
+  // SDD 019: Rename navigation tabs: Behaviors -> Findings by Tools, Packages -> Findings List, Suites -> Findings by Requirements
+  var ALLURE_LANGS = ['en', 'br', 'ru', 'zh', 'de', 'nl', 'he', 'ja', 'es', 'kr', 'fr', 'pl', 'az', 'sv', 'isv'];
+  ALLURE_LANGS.forEach(function (lang) {
+    allure.api.addTranslation(lang, {
+      tab: {
+        behaviors: { name: 'Findings by Tools' },
+        packages: { name: 'Findings List' },
+        suites: { name: 'Findings by Requirements' }
+      },
+      widget: {
+        suites: { name: 'Findings by Requirements' },
+        behaviors: { name: 'Findings by Tools' }
+      }
+    });
+  });
+
+  try {
+    if (Array.isArray(allure.api.tabs)) {
+      allure.api.tabs.forEach(function (t) {
+        if (t) {
+          if (t.tabName === 'behaviors') t.title = 'tab.behaviors.name';
+          if (t.tabName === 'packages') t.title = 'tab.packages.name';
+          if (t.tabName === 'suites') t.title = 'tab.suites.name';
+        }
+      });
+    }
+  } catch (e) {}
+
+  // Defensive DOM sync for tab labels, tooltips and tree headers (SDD 019)
+  function syncFindingsTabLabels() {
+    try {
+      var tabsMap = [
+        { key: 'behaviors', label: 'Findings by Tools' },
+        { key: 'packages', label: 'Findings List' },
+        { key: 'suites', label: 'Findings by Requirements' }
+      ];
+
+      tabsMap.forEach(function (item) {
+        var links = document.querySelectorAll('a.side-nav__link[href*="' + item.key + '"]');
+        links.forEach(function (link) {
+          var textNode = link.querySelector('.side-nav__text');
+          if (textNode && textNode.textContent.trim() !== item.label) {
+            textNode.textContent = item.label;
+          }
+          var parentItem = link.closest('.side-nav__item');
+          if (parentItem && parentItem.getAttribute('data-tooltip') !== item.label) {
+            parentItem.setAttribute('data-tooltip', item.label);
+          }
+        });
+
+        var widgetTitle = document.querySelector('.widget:has(a[href*="' + item.key + '"]) .widget__title, .widget:has(.widget__title a[href*="' + item.key + '"]) .widget__title');
+        if (widgetTitle && widgetTitle.textContent.trim().toLowerCase() === item.key) {
+          widgetTitle.textContent = item.label;
+        }
+      });
+
+      var currentHash = (window.location.hash || '').replace(/^#/, '').split('/')[0];
+      tabsMap.forEach(function (item) {
+        if (currentHash === item.key) {
+          var headerTitle = document.querySelector('.pane__title-text');
+          if (headerTitle) {
+            var raw = headerTitle.textContent.trim().toLowerCase();
+            if (raw === item.key || raw === 'suítes' || raw === 'comportamentos' || raw === 'pacotes' || raw === 'suites' || raw === 'behaviors' || raw === 'packages') {
+              headerTitle.textContent = item.label;
+            }
+          }
+        }
+      });
+    } catch (e) {}
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () {
+        syncFindingsTabLabels();
+        setInterval(syncFindingsTabLabels, 500);
+      });
+    } else {
+      syncFindingsTabLabels();
+      setInterval(syncFindingsTabLabels, 500);
+    }
+    window.addEventListener('hashchange', function () {
+      setTimeout(syncFindingsTabLabels, 50);
+      setTimeout(syncFindingsTabLabels, 300);
+    });
+  }
+
+  // Remove redundant Categories from Allure Widgets & Tabs (SDD 013)
+  try {
+    if (allure.api.widgets && allure.api.widgets.widgets) {
+      delete allure.api.widgets.widgets.categories;
+    }
+    if (allure.api.widgets && allure.api.widgets.graph) {
+      delete allure.api.widgets.graph['categories-trend'];
+    }
+    if (Array.isArray(allure.api.tabs)) {
+      var catTabIdx = allure.api.tabs.findIndex(function (t) {
+        return t && t.tabName === 'categories';
+      });
+      if (catTabIdx !== -1) {
+        allure.api.tabs.splice(catTabIdx, 1);
+      }
+    }
+    if (window.location.hash.indexOf('#categories') === 0) {
+      window.location.hash = '#suites';
+    }
+    window.addEventListener('hashchange', function () {
+      if (window.location.hash.indexOf('#categories') === 0) {
+        window.location.hash = '#suites';
+      }
+    });
+  } catch (e) {}
+
+  // Remove Graphs Tab and Migrate Exclusive Charts to Overview (SDD 018)
+  try {
+    // 1. Move exclusive charts from graph to overview (widgets)
+    if (allure.api.widgets && allure.api.widgets.graph && allure.api.widgets.widgets) {
+      var graphWidgets = allure.api.widgets.graph;
+      var overviewWidgets = allure.api.widgets.widgets;
+      var chartsToMove = ['status-chart', 'severity', 'duration'];
+      chartsToMove.forEach(function (name) {
+        if (graphWidgets[name] && !overviewWidgets[name]) {
+          overviewWidgets[name] = graphWidgets[name];
+        }
+      });
+    }
+
+    // 2. Remove Graphs tab from navigation
+    if (Array.isArray(allure.api.tabs)) {
+      var graphTabIdx = allure.api.tabs.findIndex(function (t) {
+        return t && (t.tabName === 'graph' || (t.options && t.options.route === 'graph'));
+      });
+      if (graphTabIdx !== -1) {
+        allure.api.tabs.splice(graphTabIdx, 1);
+      }
+    }
+
+    // 3. Redirect route #graph to #
+    if (window.location.hash.indexOf('#graph') === 0) {
+      window.location.hash = '#';
+    }
+    window.addEventListener('hashchange', function () {
+      if (window.location.hash.indexOf('#graph') === 0) {
+        window.location.hash = '#';
+      }
+    });
+  } catch (e) {}
 
   var activeRunId = null;
   var pollTimer = null;
   var lastDetection = null;
 
   var TOOL_CHAPTERS_MAP = {
-    'npm-audit': ['V15 (Dependencies)'],
-    'trivy-fs': ['V15 (Filesystem SCA)'],
-    'semgrep': ['V1 (Injection)', 'V2 (Validation)', 'V3 (Web)', 'V5 (Files)', 'V6 (Auth)', 'V8 (Access)', 'V11 (Crypto)', 'V13 (Config)'],
-    'gitleaks': ['V13.3 (Secrets & Keys)'],
-    'zap': ['V3.4 (Browser Security Headers)', 'V3.3 (Cookies)', 'V4 (API)', 'V13 (HTTP Config)'],
-    'odc': ['V15 (NVD CVEs)'],
-    'bandit': ['V1/V5/V11/V13 (Python SAST)'],
-    'sonar': ['V1/V6/V11/V15 (SonarQube)']
+    'npm-audit': ['V15.2.1 (Dependencies)'],
+    'trivy-fs': ['V15.2.1 (SCA)', 'V13.2.4 (IaC Config)', 'V13.3.1 (Secrets)'],
+    'semgrep': ['V1.2.1/V1.2.4/V1.2.5 (Injection)', 'V1.3.2 (Eval)', 'V2.3.1 (Logic)', 'V3.4.2/V3.4.4/V3.4.6 (Headers)', 'V5.3.2 (Files)', 'V11.4.1/V11.5.1 (Crypto)', 'V13.3.1 (Secrets)', 'V16.5.1 (Errors)'],
+    'gitleaks': ['V13.3.1 (Secrets & Keys)'],
+    'zap': ['V3.4.1/V3.4.2/V3.4.3/V3.4.8 (Browser Headers)', 'V3.3.1/V3.3.2/V3.3.4 (Cookies)', 'V1.3.2 (JS Eval)', 'V14.3.2 (Cache)'],
+    'odc': ['V15.2.1 (NVD CVEs)'],
+    'bandit': ['V1.2.4/V5.3.2/V11.3.1/V13.3.1 (Python SAST)'],
+    'sonar': ['V1.2.4/V6.2.8/V11.2.1/V15.3.1 (SonarQube)']
   };
 
   var SecurityScanContentView = Backbone.Marionette.View.extend({
@@ -785,21 +1154,27 @@ export function getAllurePluginJs(): string {
       return [
         '<div class="asvs-plugin-header">',
         '  <div>',
-        '    <h2>OWASP ASVS v5 Matrix &amp; Severity Rollup (Upstream Artifacts)</h2>',
-        '    <div class="asvs-plugin-sub">Direct view of <code>allure-results/&lt;repo&gt;/asvs-summary.csv</code> and <code>severity-rollup.json</code> generated by <code>asvs-unified-to-allure.ts</code></div>',
+        '    <h2>OWASP ASVS v5.0.0 Matrix — Granular Requirement (<code>req_id</code>) Evaluation (SDD 006)</h2>',
+        '    <div class="asvs-plugin-sub">Grounded on <code>docs/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv</code> (<strong>345 atomic requirements</strong> across <strong>80 sections</strong> &amp; <strong>17 chapters</strong>: L1=70, L2=183, L3=92)</div>',
         '  </div>',
         '  <div class="asvs-btn-row">',
-        '    <label style="font-size:12px;font-weight:600;color:#455a64">Project:</label>',
-        '    <select id="am-project-select" class="asvs-select" style="width:240px"></select>',
+        '    <label style="font-size:12px;font-weight:600;color:#455a64">ASVS Scope:</label>',
+        '    <select id="am-scope-select" class="asvs-select" style="width:190px">',
+        '      <option value="L1" selected>Level 1 (70 Reqs — Auto)</option>',
+        '      <option value="all">All Levels (345 Reqs)</option>',
+        '    </select>',
+        '    <label style="font-size:12px;font-weight:600;color:#455a64;margin-left:8px">Project:</label>',
+        '    <select id="am-project-select" class="asvs-select" style="width:200px"></select>',
         '  </div>',
         '</div>',
         '<div id="am-kpis" class="asvs-kpis"></div>',
+        '<div id="am-catalog-banner" class="asvs-coverage-banner" style="margin-bottom:16px"></div>',
         '<div class="asvs-grid-2">',
         '  <div class="asvs-card">',
-        '    <h3>OWASP ASVS v5 Controls Mapped (<code>asvs-summary.csv</code> + All Scanners)</h3>',
+        '    <h3>OWASP ASVS v5.0.0 Atomic Requirements Triggered (<code>req_id</code> Granularity)</h3>',
         '    <table class="asvs-table">',
-        '      <thead><tr><th>ASVS ID</th><th>Chapter</th><th>Levels</th><th>Title</th><th>Tools</th><th>Findings</th></tr></thead>',
-        '      <tbody id="am-asvs-tbody"><tr><td colspan="6">Loading...</td></tr></tbody>',
+        '      <thead><tr><th>Req ID (<code>req_id</code>)</th><th>Section (<code>section_id</code>)</th><th>Chapter</th><th>Level (CSV)</th><th>Official Requirement (<code>req_description</code>)</th><th>Tools</th><th>Findings</th></tr></thead>',
+        '      <tbody id="am-asvs-tbody"><tr><td colspan="7">Loading...</td></tr></tbody>',
         '    </table>',
         '  </div>',
         '  <div class="asvs-card">',
@@ -818,6 +1193,10 @@ export function getAllurePluginJs(): string {
       this.$('#am-project-select').on('change', function (e) {
         self.loadArtifacts(e.currentTarget.value);
       });
+      this.$('#am-scope-select').on('change', function () {
+        var proj = self.$('#am-project-select').val();
+        if (proj) self.loadArtifacts(proj);
+      });
       fetch('/api/projects')
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -835,6 +1214,7 @@ export function getAllurePluginJs(): string {
 
     loadArtifacts: function (repoName) {
       var self = this;
+      var scope = this.$('#am-scope-select').val() || 'L1';
       fetch('/api/projects/' + encodeURIComponent(repoName))
         .then(function (r) { return r.json(); })
         .then(function (d) {
@@ -843,18 +1223,74 @@ export function getAllurePluginJs(): string {
             typeof t.grandTotal === 'number'
               ? t.grandTotal
               : (t.critical || 0) + (t.high || 0) + (t.medium || 0) + (t.low || 0) + (t.unknown || 0);
-          self.$('#am-kpis').html([
-            '<div class="asvs-kpi crit"><div class="lbl">Critical</div><div class="val">' + (t.critical || 0) + '</div></div>',
-            '<div class="asvs-kpi high"><div class="lbl">High</div><div class="val">' + (t.high || 0) + '</div></div>',
-            '<div class="asvs-kpi med"><div class="lbl">Medium</div><div class="val">' + (t.medium || 0) + '</div></div>',
-            '<div class="asvs-kpi low"><div class="lbl">Low</div><div class="val">' + (t.low || 0) + '</div></div>',
-            '<div class="asvs-kpi"><div class="lbl">Grand Total</div><div class="val">' + grandTotal + '</div></div>'
-          ].join(''));
+          var cat = d.asvsCatalogSummary || {
+            totalRequirements: 345,
+            totalSections: 80,
+            totalChapters: 17,
+            catalogByLevel: { L1: 70, L2: 183, L3: 92 },
+            triggeredRequirements: (d.asvsSummary || []).length,
+            triggeredSections: 0,
+            triggeredChapters: 0,
+            triggeredByLevel: { L1: 0, L2: 0, L3: 0 }
+          };
 
-          var rows = d.asvsSummary || [];
+          var l1Violated = cat.triggeredByLevel.L1 || 0;
+          var l1Total = cat.catalogByLevel.L1 || 70;
+          var l1Passing = Math.max(0, l1Total - l1Violated);
+          var l1CompliancePct = ((l1Passing / l1Total) * 100).toFixed(1);
+
+          if (scope === 'L1') {
+            self.$('#am-kpis').html([
+              '<div class="asvs-kpi crit"><div class="lbl">Critical</div><div class="val">' + (t.critical || 0) + '</div></div>',
+              '<div class="asvs-kpi high"><div class="lbl">High</div><div class="val">' + (t.high || 0) + '</div></div>',
+              '<div class="asvs-kpi med"><div class="lbl">Medium</div><div class="val">' + (t.medium || 0) + '</div></div>',
+              '<div class="asvs-kpi low"><div class="lbl">Low</div><div class="val">' + (t.low || 0) + '</div></div>',
+              '<div class="asvs-kpi"><div class="lbl">L1 Reqs Violated</div><div class="val">' + l1Violated + ' / ' + l1Total + '</div></div>',
+              '<div class="asvs-kpi" style="border-left:4px solid #4caf50"><div class="lbl">L1 Compliance Rate</div><div class="val" style="color:#2e7d32">' + l1CompliancePct + '%</div></div>'
+            ].join(''));
+
+            self.$('#am-catalog-banner').html(
+              '🎯 <strong>OWASP ASVS v5.0.0 — Level 1 (L1) Automated Verification Scope:</strong> ' +
+              'Evaluated against the <strong>70 canonical L1 requirements</strong> intended for automated verification. ' +
+              'Violated: <strong>' + l1Violated + ' / 70</strong> • Conforming: <strong>' + l1Passing + ' / 70</strong> ' +
+              '(<strong>' + l1CompliancePct + '% compliance</strong>). Non-L1 requirements excluded.'
+            );
+          } else {
+            self.$('#am-kpis').html([
+              '<div class="asvs-kpi crit"><div class="lbl">Critical</div><div class="val">' + (t.critical || 0) + '</div></div>',
+              '<div class="asvs-kpi high"><div class="lbl">High</div><div class="val">' + (t.high || 0) + '</div></div>',
+              '<div class="asvs-kpi med"><div class="lbl">Medium</div><div class="val">' + (t.medium || 0) + '</div></div>',
+              '<div class="asvs-kpi low"><div class="lbl">Low</div><div class="val">' + (t.low || 0) + '</div></div>',
+              '<div class="asvs-kpi"><div class="lbl">Grand Total</div><div class="val">' + grandTotal + '</div></div>',
+              '<div class="asvs-kpi"><div class="lbl">All ASVS req_id Hit</div><div class="val">' + cat.triggeredRequirements + ' / ' + cat.totalRequirements + '</div></div>'
+            ].join(''));
+
+            self.$('#am-catalog-banner').html(
+              '<strong>Granular <code>req_id</code> Evaluation vs. Official ASVS 5.0.0 Catalog (345 reqs):</strong> ' +
+              'Triggered <strong>' + cat.triggeredRequirements + ' / ' + cat.totalRequirements + '</strong> atomic requirements ' +
+              '(<code>L1: ' + cat.triggeredByLevel.L1 + '/' + cat.catalogByLevel.L1 + '</code> • ' +
+              '<code>L2: ' + cat.triggeredByLevel.L2 + '/' + cat.catalogByLevel.L2 + '</code> • ' +
+              '<code>L3: ' + cat.triggeredByLevel.L3 + '/' + cat.catalogByLevel.L3 + '</code>) across ' +
+              '<strong>' + cat.triggeredSections + ' / ' + cat.totalSections + '</strong> sections and ' +
+              '<strong>' + cat.triggeredChapters + ' / ' + cat.totalChapters + '</strong> chapters.'
+            );
+          }
+
+          var allRows = d.asvsSummary || [];
+          var rows = scope === 'L1' ? allRows.filter(function (r) { return r.levels === 'L1'; }) : allRows;
           self.$('#am-asvs-tbody').html(rows.length ? rows.map(function (r) {
-            return '<tr><td><strong><code>' + r.asvsId + '</code></strong></td><td>' + r.chapter + '</td><td><code>' + r.levels + '</code></td><td>' + r.title + '</td><td><code>' + (r.tools || '-') + '</code></td><td><strong>' + r.count + '</strong></td></tr>';
-          }).join('') : '<tr><td colspan="6">No mapped ASVS entries found</td></tr>');
+            var secDisplay = (r.sectionId || '') + (r.sectionName ? ': ' + r.sectionName : '');
+            var descDisplay = r.reqDescription || r.title || '';
+            return '<tr>' +
+              '<td><strong><code>' + (r.reqId || r.asvsId) + '</code></strong></td>' +
+              '<td><code>' + secDisplay + '</code></td>' +
+              '<td>' + r.chapter + '</td>' +
+              '<td><strong><code>' + r.levels + '</code></strong></td>' +
+              '<td style="font-size:11.5px;line-height:1.35">' + descDisplay + '</td>' +
+              '<td><code>' + (r.tools || '-') + '</code></td>' +
+              '<td><strong>' + r.count + '</strong></td>' +
+              '</tr>';
+          }).join('') : '<tr><td colspan="7">No mapped ASVS req_id entries found</td></tr>');
 
           var byTool = (d.rollup && d.rollup.byTool) || {};
           var keys = Object.keys(byTool);
@@ -900,6 +1336,92 @@ export function getAllurePluginJs(): string {
       return new AsvsMatrixLayout();
     }
   });
+
+  // Standardize "test cases" -> "findings" across Allure UI (SDD 010 & SDD 011)
+  function standardizeFindingsTerminology() {
+    try {
+      // 1. Splash subtitle directly under total number
+      var splashSubtitles = document.querySelectorAll('.splash__subtitle');
+      for (var s = 0; s < splashSubtitles.length; s++) {
+        var el = splashSubtitles[s];
+        if (el.textContent && /test cases?/i.test(el.textContent)) {
+          el.textContent = 'findings';
+        }
+      }
+
+      // 2. Chart caption text & tooltips
+      var captions = document.querySelectorAll('.chart__caption-text');
+      for (var i = 0; i < captions.length; i++) {
+        if (captions[i].textContent && /test cases?/i.test(captions[i].textContent)) {
+          captions[i].textContent = 'findings';
+        }
+      }
+
+      // 3. Widget titles, headers, popovers and tooltips
+      var titles = document.querySelectorAll('.widget__title, .pane__title, .chart__title, .sub-title, .popover, .tooltip, .splash__subtitle');
+      for (var j = 0; j < titles.length; j++) {
+        if (titles[j].textContent && /test cases?/i.test(titles[j].textContent)) {
+          titles[j].textContent = titles[j].textContent
+            .replace(/test cases/gi, 'findings')
+            .replace(/test case/gi, 'finding')
+            .replace(/casos de testes/gi, 'findings')
+            .replace(/caso de teste/gi, 'finding');
+        }
+      }
+
+      // 4. Side navigation if applicable
+      var sideNav = document.querySelectorAll('.side-nav__item-text');
+      for (var k = 0; k < sideNav.length; k++) {
+        if (sideNav[k].textContent && /test cases?/i.test(sideNav[k].textContent)) {
+          sideNav[k].textContent = sideNav[k].textContent
+            .replace(/test cases/gi, 'findings')
+            .replace(/test case/gi, 'finding')
+            .replace(/casos de testes/gi, 'findings')
+            .replace(/caso de teste/gi, 'finding');
+        }
+      }
+
+      // 5. Hide redundant Categories widget & side nav tab (SDD 013)
+      var catWidgets = document.querySelectorAll('.widget');
+      for (var w = 0; w < catWidgets.length; w++) {
+        var heading = catWidgets[w].querySelector('.widget__title');
+        if (heading && /CATEGORIES|CATEGORIAS/i.test(heading.textContent || '')) {
+          catWidgets[w].style.display = 'none';
+        }
+        if (catWidgets[w].querySelector('a[href*="categories"]')) {
+          catWidgets[w].style.display = 'none';
+        }
+      }
+      var sideCat = document.querySelectorAll('.side-nav__item');
+      for (var sc = 0; sc < sideCat.length; sc++) {
+        var link = sideCat[sc].querySelector('a')?.getAttribute('href') || '';
+        if (/categories/i.test(link)) {
+          sideCat[sc].style.display = 'none';
+        }
+      }
+
+      // 6. Standardize Passed -> Warning / Non-blocking (SDD 017)
+      var statusElements = document.querySelectorAll(
+        '.status-toggle__item, .chart__legend-row, .chart__legend-label, .summary-widget__stats, [data-tooltip], .label_status_passed, .text_status_passed, .status-details_status_passed'
+      );
+      for (var s = 0; s < statusElements.length; s++) {
+        var el = statusElements[s];
+        var tt = el.getAttribute('data-tooltip');
+        if (tt && /passed/i.test(tt)) {
+          el.setAttribute('data-tooltip', tt.replace(/passed/gi, 'warning'));
+        }
+        if (el.classList.contains('status-toggle__item') || el.classList.contains('chart__legend-row') || el.classList.contains('chart__legend-label')) {
+          for (var c = 0; c < el.childNodes.length; c++) {
+            var node = el.childNodes[c];
+            if (node.nodeType === 3 && /passed/i.test(node.nodeValue || '')) {
+              node.nodeValue = node.nodeValue.replace(/passed/gi, 'warning');
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  setInterval(standardizeFindingsTerminology, 300);
 })();
 `;
 }

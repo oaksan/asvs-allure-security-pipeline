@@ -3,6 +3,8 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { describe, it } from 'node:test';
 
+import { getAllurePluginCss, getAllurePluginJs } from './allure-plugin';
+import { loadAsvsCatalog, resolveFindingToReqIds } from './asvs-catalog';
 import { detectToolsForRepo } from './detector';
 import {
   extractRepoNameFromUrl,
@@ -135,6 +137,12 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
       assert.ok(home.raw.includes('<script src="app.js"></script>'));
       assert.ok(home.raw.includes('plugin/asvs-pipeline/index.js'));
 
+      const cssRes = await httpRequest(`${base}/plugin/asvs-pipeline/styles.css`);
+      assert.equal(cssRes.status, 200);
+      assert.ok(cssRes.raw.includes('position: absolute;'));
+      assert.ok(cssRes.raw.includes('overflow-y: auto;'));
+      assert.ok(cssRes.raw.includes('max-height: 100%;'));
+
       const detectRes = await httpRequest(`${base}/api/detect-tools`, 'POST', {
         repoUrl: 'https://github.com/juice-shop/juice-shop.git',
         targetUrl: base,
@@ -160,12 +168,148 @@ describe('Native Allure Report Plugin & Smart Tool Detection (SDD 001 & 002)', (
 
       const csvPath = path.join(workspaceRoot, 'allure-results', 'juice-shop', 'asvs-summary.csv');
       const parsedCsv = parseAsvsSummaryCsv(csvPath);
-      if (parsedCsv.length > 0) {
-        assert.ok(parsedCsv[0].asvsId.startsWith('V'));
-        assert.ok(parsedCsv[0].count > 0);
+      assert.ok(parsedCsv.length > 0);
+      assert.ok(parsedCsv[0].asvsId.startsWith('V'));
+      assert.match(parsedCsv[0].reqId, /^V\d+\.\d+\.\d+$/);
+      assert.ok(parsedCsv[0].count > 0);
+      assert.ok(parsedCsv[0].reqDescription.length > 0);
+
+      const catalogRes = await httpRequest(`${base}/api/asvs-catalog`);
+      assert.equal(catalogRes.status, 200);
+      assert.equal(catalogRes.body.granularity, 'req_id');
+      assert.equal(catalogRes.body.stats.totalRequirements, 345);
+      assert.equal(catalogRes.body.stats.totalSections, 80);
+      assert.equal(catalogRes.body.stats.totalChapters, 17);
+      assert.deepEqual(catalogRes.body.stats.byLevel, { L1: 70, L2: 183, L3: 92 });
+
+      const projRes = await httpRequest(`${base}/api/projects/juice-shop`);
+      assert.equal(projRes.status, 200);
+      assert.equal(projRes.body.asvsCatalogSummary.evaluationGranularity, 'req_id');
+      assert.equal(projRes.body.asvsCatalogSummary.totalRequirements, 345);
+      assert.ok(projRes.body.asvsSummary.length >= 10);
+      for (const row of projRes.body.asvsSummary) {
+        assert.match(row.reqId, /^V\d+\.\d+\.\d+$/);
+        assert.match(row.sectionId, /^V\d+\.\d+$/);
+        assert.ok(['L1', 'L2', 'L3'].includes(row.levels));
       }
     } finally {
       await new Promise<void>((resolve) => srv.close(() => resolve()));
     }
+  });
+
+  it('loads the 345-requirement ASVS 5.0.0 CSV catalog and resolves findings to exact req_id items (SDD 006)', () => {
+    const workspaceRoot = path.resolve(__dirname, '..');
+    const catalog = loadAsvsCatalog(workspaceRoot);
+    assert.equal(catalog.stats.totalRequirements, 345);
+    assert.equal(catalog.stats.totalSections, 80);
+    assert.equal(catalog.stats.totalChapters, 17);
+    assert.deepEqual(catalog.stats.byLevel, { L1: 70, L2: 183, L3: 92 });
+
+    const sqli = resolveFindingToReqIds(
+      {
+        tool: 'semgrep',
+        name: 'javascript.sequelize.security.audit.sequelize-injection-express',
+        message: 'Detected a sequelize statement tainted by user-input (SQL Injection)',
+        asvsTags: ['V15.3'],
+      },
+      catalog
+    );
+    assert.equal(sqli[0].reqId, 'V1.2.4');
+    assert.equal(sqli[0].sectionId, 'V1.2');
+    assert.equal(sqli[0].level, 'L1');
+
+    const csp = resolveFindingToReqIds(
+      {
+        tool: 'zap',
+        name: 'Content Security Policy (CSP) Header Not Set',
+        message: 'Content Security Policy (CSP) helps mitigate Cross Site Scripting (XSS)',
+        asvsTags: ['V3.4'],
+      },
+      catalog
+    );
+    assert.equal(csp[0].reqId, 'V3.4.3');
+    assert.equal(csp[0].sectionId, 'V3.4');
+    assert.equal(csp[0].level, 'L2');
+
+    const secret = resolveFindingToReqIds(
+      {
+        tool: 'gitleaks',
+        name: 'generic-api-key',
+        message: 'Hardcoded secret detected',
+        asvsTags: ['V13.3'],
+      },
+      catalog
+    );
+    assert.equal(secret[0].reqId, 'V13.3.1');
+    assert.equal(secret[0].sectionId, 'V13.3');
+    assert.equal(secret[0].level, 'L2');
+  });
+
+  it('standardizes finding terminology in allure plugin css and js (SDD 011)', () => {
+    const css = getAllurePluginCss();
+    assert.ok(css.includes('.splash__subtitle'));
+    assert.ok(css.includes('content: "findings" !important;'));
+
+    const js = getAllurePluginJs();
+    assert.ok(js.includes("testResults_plural: 'findings'"));
+    assert.ok(js.includes('standardizeFindingsTerminology'));
+    assert.ok(js.includes('.splash__subtitle'));
+  });
+
+  it('suppresses redundant categories widget and tab in allure plugin (SDD 013)', () => {
+    const css = getAllurePluginCss();
+    assert.ok(css.includes('.widget:has(a[href*="categories"])'));
+    assert.ok(css.includes('.side-nav__item:has(a[href*="categories"])'));
+
+    const js = getAllurePluginJs();
+    assert.ok(js.includes('delete allure.api.widgets.widgets.categories'));
+    assert.ok(js.includes("t.tabName === 'categories'"));
+    assert.ok(js.includes("window.location.hash = '#suites'"));
+  });
+
+  it('reclassifies passed to warning (yellow) and broken to brown (SDD 017)', () => {
+    const css = getAllurePluginCss();
+    // Yellow styling for passed / warning
+    assert.ok(css.includes('.bar__fill_status_passed'));
+    assert.ok(css.includes('#fbc02d'));
+    assert.ok(css.includes('\\f071')); // fa-exclamation-triangle
+    assert.ok(css.includes('content: "Warning" !important;'));
+
+    // Brown styling for broken
+    assert.ok(css.includes('.bar__fill_status_broken'));
+    assert.ok(css.includes('#795548'));
+    assert.ok(css.includes('.alert_status_broken'));
+
+    const js = getAllurePluginJs();
+    assert.ok(js.includes("passed: 'Warning'"));
+    assert.ok(js.includes("broken: 'Broken'"));
+    assert.ok(js.includes("passed: 'Warning'"));
+    assert.ok(js.includes("warning"));
+  });
+
+  it('removes graphs tab and migrates exclusive charts to overview (SDD 018)', () => {
+    const css = getAllurePluginCss();
+    assert.ok(css.includes('.side-nav__item:has(a[href*="graph"])'));
+    assert.ok(css.includes('.side-nav__item[data-tooltip*="Graphs"]'));
+    assert.ok(css.includes('a.side-nav__link[href*="graph"]'));
+
+    const js = getAllurePluginJs();
+    assert.ok(js.includes("['status-chart', 'severity', 'duration']"));
+    assert.ok(js.includes('overviewWidgets[name] = graphWidgets[name]'));
+    assert.ok(js.includes("t.tabName === 'graph'"));
+    assert.ok(js.includes("window.location.hash = '#'"));
+  });
+
+  it('renames Behaviors to Findings by Tools, Packages to Findings List, Suites to Findings by Requirements (SDD 019)', () => {
+    const css = getAllurePluginCss();
+    assert.ok(css.includes('content: "Findings by Tools" !important;'));
+    assert.ok(css.includes('content: "Findings List" !important;'));
+    assert.ok(css.includes('content: "Findings by Requirements" !important;'));
+
+    const js = getAllurePluginJs();
+    assert.ok(js.includes("behaviors: { name: 'Findings by Tools' }"));
+    assert.ok(js.includes("packages: { name: 'Findings List' }"));
+    assert.ok(js.includes("suites: { name: 'Findings by Requirements' }"));
+    assert.ok(js.includes('syncFindingsTabLabels'));
   });
 });

@@ -5,8 +5,11 @@
   "description": "Multi-tool security scans orchestrator with ASVS-labeled Allure reports",
   "license": "MIT",
   "scripts": {
+    "start": "ts-node web-ui/server.ts",
     "parser": "ts-node security-tests/parsers/asvs-unified-to-allure.ts --help || true",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test -r ts-node/register web-ui/*.test.ts",
+    "enrich": "ts-node web-ui/enricher.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

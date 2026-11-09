@@ -13,6 +13,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { installAllureCliPlugin } from './allure-plugin';
+import {
+  AsvsCatalog,
+  loadAsvsCatalog,
+  resolveFindingToReqIds,
+  resolveSectionOrReqId,
+} from './asvs-catalog';
+import { enrichAllureResultsDir } from './enricher';
 
 export function getTrivyCacheDir(): string {
   return process.env.TRIVY_CACHE_DIR || path.join(os.homedir(), '.cache', 'trivy');
@@ -64,6 +71,7 @@ export interface ScanRunOptions {
   gitleaksHistory?: boolean;
   skipNpmInstall?: boolean;
   generateAllure?: boolean;
+  asvsLevel?: 'L1' | 'all';
 }
 
 export interface BuiltCliCommand {
@@ -416,9 +424,30 @@ export class PipelineRunManager {
         const allureBinExe = path.join(localAllureBin, 'allure');
         const resultsDir = path.join(this.workspaceDir, 'allure-results', built.repoName);
         const reportDir = path.join(this.workspaceDir, 'allure-report', built.repoName);
-        if (
+
+        if (fs.existsSync(resultsDir)) {
+          try {
+            const catalog = loadAsvsCatalog(this.workspaceDir);
+            const enrichStats = enrichAllureResultsDir(resultsDir, catalog, {
+              updateSummaryCsv: true,
+              levelFilter: opts.asvsLevel || 'L1',
+              excludeUtilityArtifacts: true,
+            });
+            record.logs.push(
+              `✨ Enriched ${enrichStats.enrichedCount} findings in ASVS v5 Scope [${enrichStats.levelFilter}] (L1:${enrichStats.byLevel.L1}${enrichStats.filteredNonL1Count > 0 ? `, filtered out ${enrichStats.filteredNonL1Count} non-L1` : ''})`
+            );
+            if (fs.existsSync(allureBinExe)) {
+              fs.chmodSync(allureBinExe, 0o755);
+              spawnSync(allureBinExe, ['generate', resultsDir, '--clean', '-o', reportDir], {
+                cwd: this.workspaceDir,
+              });
+              record.logs.push(`📊 Allure report updated with req_id granularity → ./allure-report/${built.repoName}`);
+            }
+          } catch (enrichErr: any) {
+            record.logs.push(`⚠️ ASVS enrichment warning: ${enrichErr?.message || enrichErr}`);
+          }
+        } else if (
           fs.existsSync(allureBinExe) &&
-          fs.existsSync(resultsDir) &&
           !fs.existsSync(path.join(reportDir, 'index.html'))
         ) {
           try {
@@ -503,14 +532,59 @@ export class PipelineRunManager {
 
 export interface AsvsSummaryRow {
   asvsId: string;
+  reqId: string;
+  sectionId: string;
+  sectionName: string;
+  chapterId: string;
   chapter: string;
   title: string;
+  reqDescription: string;
   levels: string;
   tools: string;
   count: number;
 }
 
-export function parseAsvsSummaryCsv(csvPath: string): AsvsSummaryRow[] {
+export interface AsvsCatalogCoverageSummary {
+  catalogSource: string;
+  evaluationGranularity: 'req_id';
+  totalRequirements: number;
+  totalSections: number;
+  totalChapters: number;
+  catalogByLevel: { L1: number; L2: number; L3: number };
+  triggeredRequirements: number;
+  triggeredSections: number;
+  triggeredChapters: number;
+  triggeredByLevel: { L1: number; L2: number; L3: number };
+}
+
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (c === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+export function parseAsvsSummaryCsv(
+  csvPath: string,
+  catalog: AsvsCatalog = loadAsvsCatalog()
+): AsvsSummaryRow[] {
   if (!fs.existsSync(csvPath)) return [];
   const lines = fs
     .readFileSync(csvPath, 'utf8')
@@ -522,18 +596,99 @@ export function parseAsvsSummaryCsv(csvPath: string): AsvsSummaryRow[] {
 
   for (let i = 1; i < lines.length; i++) {
     const row = lines[i].trim();
-    // Primary format from asvs-unified-to-allure.ts (line 1309):
+
+    // 1. Check Granular ASVS Summary format (9 columns or 8 columns) (SDD 012)
+    const cols = parseCsvLine(row);
+    if (cols.length >= 8 && /^V\d+/i.test(cols[0])) {
+      if (cols.length >= 9) {
+        const reqId = cols[0];
+        const chapterId = cols[1];
+        const chapterName = cols[2];
+        const sectionId = cols[3];
+        const sectionName = cols[4];
+        const reqDescription = cols[5];
+        const levels = cols[6];
+        const count = Number(cols[7]) || 0;
+        const tools = cols[8] || '';
+        out.push({
+          asvsId: reqId,
+          reqId,
+          sectionId,
+          sectionName,
+          chapterId,
+          chapter: `${chapterId}: ${chapterName}`,
+          title: `${sectionName} — ${reqDescription}`,
+          reqDescription,
+          levels,
+          tools,
+          count,
+        });
+        continue;
+      } else if (cols.length === 8) {
+        const reqId = cols[0];
+        const chapterId = cols[1];
+        const chapterName = cols[2];
+        const sectionId = cols[3];
+        const sectionName = cols[4];
+        const levels = cols[5];
+        const count = Number(cols[6]) || 0;
+        const tools = cols[7] || '';
+        const rec = catalog.byReqId.get(reqId);
+        const reqDescription = rec ? rec.reqDescription : sectionName;
+        out.push({
+          asvsId: reqId,
+          reqId,
+          sectionId,
+          sectionName,
+          chapterId,
+          chapter: `${chapterId}: ${chapterName}`,
+          title: `${sectionName} — ${reqDescription}`,
+          reqDescription,
+          levels,
+          tools,
+          count,
+        });
+        continue;
+      }
+    }
+
+    // 2. Primary format from asvs-unified-to-allure.ts (line 1309):
     // control,chapter,levels,count,tools -> "V15.3","V15: Secure Coding and Architecture",["L1"],42,["semgrep"]
     try {
       const parsed = JSON.parse(`[${row}]`);
       if (Array.isArray(parsed) && parsed.length === 5 && typeof parsed[3] === 'number') {
-        const asvsId = String(parsed[0] || '');
-        const chapter = String(parsed[1] || '');
-        const title = chapter.replace(/^V\d+(?:\.\d+)?:\s*/i, '') || chapter;
-        const levels = Array.isArray(parsed[2]) ? parsed[2].join(', ') : String(parsed[2] || '');
+        const rawControl = String(parsed[0] || '');
+        const rawChapter = String(parsed[1] || '');
+        const rec = resolveSectionOrReqId(rawControl, catalog);
+        const reqId = rec ? rec.reqId : rawControl;
+        const sectionId = rec ? rec.sectionId : rawControl.split('.').slice(0, 2).join('.');
+        const sectionName = rec
+          ? rec.sectionName
+          : rawChapter.replace(/^V\d+(?:\.\d+)?:\s*/i, '') || rawChapter;
+        const chapterId = rec ? rec.chapterId : rawControl.split('.')[0];
+        const chapter = rec ? `${rec.chapterId}: ${rec.chapterName}` : rawChapter;
+        const reqDescription = rec ? rec.reqDescription : sectionName;
+        const title = rec ? `${rec.sectionName} — ${rec.reqDescription}` : sectionName;
+        const levels = rec
+          ? rec.level
+          : Array.isArray(parsed[2])
+          ? parsed[2].join(', ')
+          : String(parsed[2] || 'L1');
         const count = Number(parsed[3]) || 0;
         const tools = Array.isArray(parsed[4]) ? parsed[4].join(', ') : String(parsed[4] || '');
-        out.push({ asvsId, chapter, title, levels, tools, count });
+        out.push({
+          asvsId: reqId,
+          reqId,
+          sectionId,
+          sectionName,
+          chapterId,
+          chapter,
+          title,
+          reqDescription,
+          levels,
+          tools,
+          count,
+        });
         continue;
       }
     } catch {
@@ -542,11 +697,24 @@ export function parseAsvsSummaryCsv(csvPath: string): AsvsSummaryRow[] {
 
     const match = /^"([^"]*)","([^"]*)","((?:[^"]|"")*)","([^"]*)",(\d+)$/.exec(row);
     if (match) {
+      const rawControl = match[1];
+      const rec = resolveSectionOrReqId(rawControl, catalog);
+      const reqId = rec ? rec.reqId : rawControl;
+      const sectionId = rec ? rec.sectionId : rawControl.split('.').slice(0, 2).join('.');
+      const sectionName = rec ? rec.sectionName : match[3].replace(/""/g, '"');
+      const chapterId = rec ? rec.chapterId : rawControl.split('.')[0];
+      const chapter = rec ? `${rec.chapterId}: ${rec.chapterName}` : match[2];
+      const reqDescription = rec ? rec.reqDescription : match[3].replace(/""/g, '"');
       out.push({
-        asvsId: match[1],
-        chapter: match[2],
-        title: match[3].replace(/""/g, '"'),
-        levels: match[4],
+        asvsId: reqId,
+        reqId,
+        sectionId,
+        sectionName,
+        chapterId,
+        chapter,
+        title: reqDescription,
+        reqDescription,
+        levels: rec ? rec.level : match[4],
         tools: '',
         count: Number(match[5]),
       });
@@ -557,14 +725,18 @@ export function parseAsvsSummaryCsv(csvPath: string): AsvsSummaryRow[] {
 
 export function aggregateAsvsFromAllureResults(
   resDir: string,
-  csvRows: AsvsSummaryRow[] = []
+  csvRows: AsvsSummaryRow[] = [],
+  catalog: AsvsCatalog = loadAsvsCatalog()
 ): AsvsSummaryRow[] {
-  const byControl = new Map<
+  const byReq = new Map<
     string,
     {
-      asvsId: string;
+      reqId: string;
+      sectionId: string;
+      sectionName: string;
+      chapterId: string;
       chapter: string;
-      titles: Set<string>;
+      reqDescription: string;
       levels: Set<string>;
       tools: Set<string>;
       count: number;
@@ -581,7 +753,7 @@ export function aggregateAsvsFromAllureResults(
           ? data.labels
           : [];
         const feature = labels.find((l) => l.name === 'feature')?.value || '';
-        if (!feature || feature === 'Meta') continue;
+        if (!feature || feature === 'Meta' || feature === 'Artifacts') continue;
 
         const dedupeKey = `${feature}::${data.fullName || data.name || file}`;
         if (seenFullNames.has(dedupeKey)) continue;
@@ -597,29 +769,38 @@ export function aggregateAsvsFromAllureResults(
             ?.value.replace(/^ASVS:\s*/i, '')
             .trim() || '';
         const epicTitle = labels.find((l) => l.name === 'epic')?.value || '';
-        const levelVals = labels.filter((l) => l.name === 'level').map((l) => l.value);
+        const message = String(data?.statusDetails?.message || '');
 
-        const controlIds = asvsTags.length > 0 ? asvsTags : suiteChapter ? [suiteChapter.split(':')[0]] : [];
-        for (const cid of controlIds) {
-          let entry = byControl.get(cid);
+        const resolvedReqs = resolveFindingToReqIds(
+          {
+            tool: feature,
+            name: String(data?.name || ''),
+            fullName: String(data?.fullName || ''),
+            message,
+            asvsTags,
+            suiteChapter,
+            epicTitle,
+          },
+          catalog
+        );
+
+        for (const rec of resolvedReqs) {
+          let entry = byReq.get(rec.reqId);
           if (!entry) {
             entry = {
-              asvsId: cid,
-              chapter: suiteChapter || cid,
-              titles: new Set<string>(),
-              levels: new Set<string>(),
+              reqId: rec.reqId,
+              sectionId: rec.sectionId,
+              sectionName: rec.sectionName,
+              chapterId: rec.chapterId,
+              chapter: `${rec.chapterId}: ${rec.chapterName}`,
+              reqDescription: rec.reqDescription,
+              levels: new Set<string>([rec.level]),
               tools: new Set<string>(),
               count: 0,
             };
-            byControl.set(cid, entry);
+            byReq.set(rec.reqId, entry);
           }
-          if (suiteChapter && (!entry.chapter || entry.chapter === cid)) {
-            entry.chapter = suiteChapter;
-          }
-          if (epicTitle) entry.titles.add(epicTitle);
-          for (const lv of levelVals) {
-            if (lv) entry.levels.add(lv);
-          }
+          entry.levels.add(rec.level);
           entry.tools.add(feature);
           entry.count += 1;
         }
@@ -630,11 +811,14 @@ export function aggregateAsvsFromAllureResults(
   }
 
   for (const row of csvRows) {
-    if (!byControl.has(row.asvsId)) {
-      byControl.set(row.asvsId, {
-        asvsId: row.asvsId,
+    if (!byReq.has(row.reqId)) {
+      byReq.set(row.reqId, {
+        reqId: row.reqId,
+        sectionId: row.sectionId,
+        sectionName: row.sectionName,
+        chapterId: row.chapterId,
         chapter: row.chapter,
-        titles: new Set(row.title ? [row.title] : []),
+        reqDescription: row.reqDescription,
         levels: new Set(
           row.levels
             .split(',')
@@ -652,19 +836,51 @@ export function aggregateAsvsFromAllureResults(
     }
   }
 
-  return Array.from(byControl.values())
-    .sort((a, b) => b.count - a.count || a.asvsId.localeCompare(b.asvsId))
+  return Array.from(byReq.values())
+    .sort((a, b) => b.count - a.count || a.reqId.localeCompare(b.reqId))
     .map((e) => ({
-      asvsId: e.asvsId,
+      asvsId: e.reqId,
+      reqId: e.reqId,
+      sectionId: e.sectionId,
+      sectionName: e.sectionName,
+      chapterId: e.chapterId,
       chapter: e.chapter,
-      title:
-        Array.from(e.titles).join(' / ') ||
-        e.chapter.replace(/^V\d+(?:\.\d+)?:\s*/i, '') ||
-        e.chapter,
+      title: `${e.sectionName} — ${e.reqDescription}`,
+      reqDescription: e.reqDescription,
       levels: Array.from(e.levels).sort().join(', ') || 'L1',
       tools: Array.from(e.tools).sort().join(', '),
       count: e.count,
     }));
+}
+
+export function buildAsvsCoverageStats(
+  asvsSummary: AsvsSummaryRow[],
+  catalog: AsvsCatalog = loadAsvsCatalog()
+): AsvsCatalogCoverageSummary {
+  const triggeredSections = new Set<string>();
+  const triggeredChapters = new Set<string>();
+  const triggeredByLevel = { L1: 0, L2: 0, L3: 0 };
+
+  for (const r of asvsSummary) {
+    if (r.sectionId) triggeredSections.add(r.sectionId);
+    if (r.chapterId) triggeredChapters.add(r.chapterId);
+    if (r.levels.includes('L1')) triggeredByLevel.L1++;
+    else if (r.levels.includes('L2')) triggeredByLevel.L2++;
+    else if (r.levels.includes('L3')) triggeredByLevel.L3++;
+  }
+
+  return {
+    catalogSource: 'docs/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv',
+    evaluationGranularity: 'req_id',
+    totalRequirements: catalog.stats.totalRequirements,
+    totalSections: catalog.stats.totalSections,
+    totalChapters: catalog.stats.totalChapters,
+    catalogByLevel: catalog.stats.byLevel,
+    triggeredRequirements: asvsSummary.length,
+    triggeredSections: triggeredSections.size,
+    triggeredChapters: triggeredChapters.size,
+    triggeredByLevel,
+  };
 }
 
 export function listEvaluatedProjects(workspaceDir: string): Array<Record<string, any>> {
@@ -733,8 +949,10 @@ export function getProjectArtifacts(workspaceDir: string, repoName: string): Rec
     ? fs.readFileSync(envPropPath, 'utf8')
     : '';
 
-  const csvRows = parseAsvsSummaryCsv(path.join(resDir, 'asvs-summary.csv'));
-  const asvsSummary = aggregateAsvsFromAllureResults(resDir, csvRows);
+  const catalog = loadAsvsCatalog(workspaceDir);
+  const csvRows = parseAsvsSummaryCsv(path.join(resDir, 'asvs-summary.csv'), catalog);
+  const asvsSummary = aggregateAsvsFromAllureResults(resDir, csvRows, catalog);
+  const asvsCatalogSummary = buildAsvsCoverageStats(asvsSummary, catalog);
 
   const timingsPath = path.join(workspaceDir, 'timings.csv');
   const timingsCsv = fs.existsSync(timingsPath) ? fs.readFileSync(timingsPath, 'utf8') : '';
@@ -757,6 +975,7 @@ export function getProjectArtifacts(workspaceDir: string, repoName: string): Rec
     rollup: rollupJson,
     rollupMarkdown: rollupMd,
     asvsSummary,
+    asvsCatalogSummary,
     environmentProperties,
     timingsCsv,
     rawReports,
